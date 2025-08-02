@@ -1,0 +1,63 @@
+{
+  "name": "n8n-nodes-tallyfy",
+  "version": "1.0.0",
+  "description": "Complete n8n integration for Tallyfy with 60+ operations across blueprints, processes, tasks, forms, comments, users, groups, and search. See https://tallyfy.com/products/pro/integrations/middleware/n8n/ for complete documentation.",
+  "keywords": [
+    "n8n",
+    "n8n-node",
+    "n8n-community-node-package",
+    "tallyfy",
+    "workflow",
+    "automation",
+    "process",
+    "bpm",
+    "task",
+    "checklist"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/tallyfy/n8n#readme",
+  "author": {
+    "name": "Tallyfy",
+    "email": "support@tallyfy.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tallyfy/n8n.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tallyfy/n8n/issues"
+  },
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc && gulp build:icons",
+    "dev": "tsc --watch",
+    "format": "prettier nodes credentials --write",
+    "lint": "eslint nodes credentials package.json",
+    "lintfix": "eslint nodes credentials package.json --fix",
+    "prepublishOnly": "npm run build && npm run test",
+    "test": "npm run lint"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/TallyfyApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Tallyfy/Tallyfy.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "gulp": "^4.0.2",
+    "n8n-workflow": "^1.82.0",
+    "prettier": "^3.2.0",
+    "typescript": "^5.3.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "^1.82.0"
+  }
+}
