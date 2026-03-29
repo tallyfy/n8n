@@ -15,7 +15,7 @@ Custom n8n community node package providing 60+ Tallyfy API tools for workflow a
 - **Docker network**: n8n
 - **Tunnel**: n8n.tallyfy.com via mcp&answers tunnel (2a507cba-31a4-4732-adf9-7a137b9b9b4a)
 - **CI/CD**: None — deployed manually
-- **Backups**: No automated backup of n8n data/workflows
+- **Backups**: DO usage-based weekly backups enabled (2026-03-29)
 
 **Full DO infrastructure docs**: See `systems/docs/DigitalOcean_Infrastructure.md`
 
@@ -23,4 +23,4 @@ Custom n8n community node package providing 60+ Tallyfy API tools for workflow a
 
 - Container restarts frequently (observed "Up Less than a second" during audit)
 - No automated deployment pipeline
-- No backup strategy for workflows/credentials stored in n8n
+- Workflows/credentials backed up via DO droplet-level weekly backups (enabled 2026-03-29)
