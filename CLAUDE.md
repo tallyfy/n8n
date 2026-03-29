@@ -21,6 +21,6 @@ Custom n8n community node package providing 60+ Tallyfy API tools for workflow a
 
 ## Known Issues
 
-- Container restarts frequently (observed "Up Less than a second" during audit)
+- **Boot-order dependency**: After droplet reboot, PostgreSQL must listen on Docker bridge IPs (`172.17.0.1`) before n8n can start. PG `listen_addresses` includes Docker bridges but they don't exist at PG boot time. **Fix**: Restart PG after boot (`systemctl restart postgresql@17-main`) then restart n8n (`docker restart n8n`).
 - No automated deployment pipeline
 - Workflows/credentials backed up via DO droplet-level weekly backups (enabled 2026-03-29)
