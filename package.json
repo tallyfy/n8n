@@ -46,7 +46,8 @@
       "dist/credentials/TallyfyApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/Tallyfy/Tallyfy.node.js"
+      "dist/nodes/Tallyfy/Tallyfy.node.js",
+      "dist/nodes/Tallyfy/TallyfyTrigger.node.js"
     ]
   },
   "devDependencies": {

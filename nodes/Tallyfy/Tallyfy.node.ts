@@ -77,6 +77,16 @@ export class Tallyfy implements INodeType {
 						description: 'Group management',
 					},
 					{
+						name: 'Tag',
+						value: 'tag',
+						description: 'Tag management',
+					},
+					{
+						name: 'Folder',
+						value: 'folder',
+						description: 'Folder management',
+					},
+					{
 						name: 'Search',
 						value: 'search',
 						description: 'Search across Tallyfy',
@@ -133,6 +143,24 @@ export class Tallyfy implements INodeType {
 						description: 'Delete a blueprint',
 						action: 'Delete a blueprint',
 					},
+					{
+						name: 'Clone',
+						value: 'clone',
+						description: 'Clone a blueprint (template)',
+						action: 'Clone a blueprint',
+					},
+					{
+						name: 'Get Kickoff Fields',
+						value: 'getKickoffFields',
+						description: 'Get a template kickoff (prerun) fields',
+						action: 'Get kickoff fields',
+					},
+					{
+						name: 'List Steps',
+						value: 'listSteps',
+						description: 'List all steps of a template',
+						action: 'List template steps',
+					},
 				],
 				default: 'getAll',
 			},
@@ -184,6 +212,24 @@ export class Tallyfy implements INodeType {
 						value: 'getTasks',
 						description: 'Get all tasks in a process',
 						action: 'Get process tasks',
+					},
+					{
+						name: 'Reactivate',
+						value: 'reactivate',
+						description: 'Reactivate an archived process',
+						action: 'Reactivate a process',
+					},
+					{
+						name: 'Complete Kickoff Form',
+						value: 'completeKickoffForm',
+						description: 'Mark a process kickoff form as submitted',
+						action: 'Complete kickoff form',
+					},
+					{
+						name: 'Reopen Kickoff Form',
+						value: 'reopenKickoffForm',
+						description: 'Reopen a submitted kickoff form for edits',
+						action: 'Reopen kickoff form',
 					},
 				],
 				default: 'launch',
@@ -243,6 +289,42 @@ export class Tallyfy implements INodeType {
 						description: 'Clone a task',
 						action: 'Clone a task',
 					},
+					{
+						name: 'Get My Tasks',
+						value: 'getMyTasks',
+						description: 'List tasks assigned to the connected user',
+						action: 'Get my tasks',
+					},
+					{
+						name: 'Get User Tasks',
+						value: 'getUserTasks',
+						description: 'List tasks assigned to a specific member',
+						action: 'Get user tasks',
+					},
+					{
+						name: 'Get Guest Tasks',
+						value: 'getGuestTasks',
+						description: 'List tasks assigned to a guest',
+						action: 'Get guest tasks',
+					},
+					{
+						name: 'Reopen',
+						value: 'reopen',
+						description: 'Reopen a completed task',
+						action: 'Reopen a task',
+					},
+					{
+						name: 'Get Process Task',
+						value: 'getProcessTask',
+						description: 'Get one task inside a process',
+						action: 'Get process task',
+					},
+					{
+						name: 'Update Process Task',
+						value: 'updateProcessTask',
+						description: 'Update a task inside a process (title, deadline, owners, form values, status)',
+						action: 'Update process task',
+					},
 				],
 				default: 'complete',
 			},
@@ -270,6 +352,66 @@ export class Tallyfy implements INodeType {
 						value: 'getFields',
 						description: 'Get all form fields for a task or process',
 						action: 'Get form fields',
+					},
+					{
+						name: 'Add Field',
+						value: 'addField',
+						description: 'Add a form field to a template step',
+						action: 'Add form field',
+					},
+					{
+						name: 'Update Field',
+						value: 'updateField',
+						description: 'Update a form field on a template step',
+						action: 'Update form field',
+					},
+					{
+						name: 'Move Field',
+						value: 'moveField',
+						description: 'Move a form field to another step',
+						action: 'Move form field',
+					},
+					{
+						name: 'Delete Field',
+						value: 'deleteField',
+						description: 'Delete a form field from a template step',
+						action: 'Delete form field',
+					},
+					{
+						name: 'Get Dropdown Options',
+						value: 'getDropdownOptions',
+						description: 'Get the options of a choice field',
+						action: 'Get dropdown options',
+					},
+					{
+						name: 'Update Dropdown Options',
+						value: 'updateDropdownOptions',
+						description: 'Replace the options of a choice field',
+						action: 'Update dropdown options',
+					},
+					{
+						name: 'Add Kickoff Field',
+						value: 'addKickoffField',
+						description: 'Add a field to the template kickoff form',
+						action: 'Add kickoff field',
+					},
+					{
+						name: 'Update Kickoff Field',
+						value: 'updateKickoffField',
+						description: 'Update a kickoff field',
+						action: 'Update kickoff field',
+					},
+					{
+						name: 'Delete Kickoff Field',
+						value: 'deleteKickoffField',
+						description: 'Delete a kickoff field',
+						action: 'Delete kickoff field',
+					},
+					{
+						name: 'Reorder Kickoff Fields',
+						value: 'reorderKickoffField',
+						description: 'Reorder the template kickoff fields',
+						action: 'Reorder kickoff fields',
 					},
 				],
 				default: 'updateValue',
@@ -322,6 +464,12 @@ export class Tallyfy implements INodeType {
 						value: 'delete',
 						description: 'Delete a comment',
 						action: 'Delete a comment',
+					},
+					{
+						name: 'List',
+						value: 'list',
+						description: 'List all comments and issues on a process task',
+						action: 'List task comments',
 					},
 				],
 				default: 'create',
@@ -387,6 +535,12 @@ export class Tallyfy implements INodeType {
 						description: 'Convert member to guest',
 						action: 'Convert to guest',
 					},
+					{
+						name: 'Get Organization',
+						value: 'getOrganization',
+						description: 'Get the organization details',
+						action: 'Get organization',
+					},
 				],
 				default: 'getAll',
 			},
@@ -438,6 +592,18 @@ export class Tallyfy implements INodeType {
 						value: 'convertToMember',
 						description: 'Convert guest to member',
 						action: 'Convert to member',
+					},
+					{
+						name: 'Enable',
+						value: 'enable',
+						description: 'Re-enable a disabled guest',
+						action: 'Enable a guest',
+					},
+					{
+						name: 'Disable',
+						value: 'disable',
+						description: 'Disable a guest (blocks org access)',
+						action: 'Disable a guest',
 					},
 				],
 				default: 'create',
@@ -525,6 +691,12 @@ export class Tallyfy implements INodeType {
 						description: 'Search for blueprints',
 						action: 'Search blueprints',
 					},
+					{
+						name: 'Search Snippets',
+						value: 'snippets',
+						description: 'Search for text snippets',
+						action: 'Search snippets',
+					},
 				],
 				default: 'global',
 			},
@@ -595,7 +767,7 @@ export class Tallyfy implements INodeType {
 				displayOptions: {
 					show: {
 						resource: ['blueprint'],
-						operation: ['get', 'update', 'delete'],
+						operation: ['get', 'update', 'delete', 'clone', 'getKickoffFields', 'listSteps'],
 					},
 				},
 				description: 'The ID of the blueprint',
@@ -653,7 +825,7 @@ export class Tallyfy implements INodeType {
 				displayOptions: {
 					show: {
 						resource: ['process'],
-						operation: ['get', 'update', 'archive', 'getTasks'],
+						operation: ['get', 'update', 'archive', 'getTasks', 'reactivate', 'completeKickoffForm', 'reopenKickoffForm'],
 					},
 				},
 				description: 'The ID of the process',
@@ -697,7 +869,7 @@ export class Tallyfy implements INodeType {
 				displayOptions: {
 					show: {
 						resource: ['task'],
-						operation: ['complete', 'get', 'updateProperties', 'delete', 'clone'],
+						operation: ['complete', 'get', 'updateProperties', 'delete', 'clone', 'reopen', 'getProcessTask', 'updateProcessTask'],
 					},
 				},
 				description: 'The ID of the task',
@@ -1082,7 +1254,7 @@ export class Tallyfy implements INodeType {
 				displayOptions: {
 					show: {
 						resource: ['comment'],
-						operation: ['create', 'createBot', 'reportProblem', 'resolveIssue'],
+						operation: ['create', 'createBot', 'reportProblem', 'resolveIssue', 'update', 'delete', 'list'],
 					},
 				},
 				description: 'The ID of the task to comment on',
@@ -1248,7 +1420,7 @@ export class Tallyfy implements INodeType {
 				displayOptions: {
 					show: {
 						resource: ['guest'],
-						operation: ['create', 'get', 'update', 'delete', 'convertToMember'],
+						operation: ['create', 'get', 'update', 'delete', 'convertToMember', 'enable', 'disable'],
 					},
 				},
 				description: 'Email address of the guest',
@@ -1454,6 +1626,716 @@ export class Tallyfy implements INodeType {
 				description: 'Type of context for form field search',
 			},
 
+			{
+				displayName: 'New Title',
+				name: 'cloneTitle',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['blueprint'],
+						operation: ['clone'],
+					},
+				},
+				description: 'Optional new name for the cloned template',
+			},
+			{
+				displayName: 'Additional Fields',
+				name: 'additionalFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['blueprint'],
+						operation: ['create', 'update'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Summary',
+						name: 'summary',
+						type: 'string',
+						default: '',
+						description: 'Short description of the template',
+					},
+					{
+						displayName: 'Guidance',
+						name: 'guidance',
+						type: 'string',
+						default: '',
+						description: 'Guidance shown to the launcher',
+					},
+					{
+						displayName: 'Is Public',
+						name: 'is_public',
+						type: 'boolean',
+						default: false,
+						description: 'Whether the template is public',
+					},
+				],
+			},
+			{
+				displayName: 'Additional Fields',
+				name: 'additionalFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['process'],
+						operation: ['launch', 'update'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Name',
+						name: 'name',
+						type: 'string',
+						default: '',
+						description: 'Process name (use to rename on update)',
+					},
+					{
+						displayName: 'Summary',
+						name: 'summary',
+						type: 'string',
+						default: '',
+						description: 'Process summary',
+					},
+					{
+						displayName: 'Starred',
+						name: 'starred',
+						type: 'boolean',
+						default: false,
+						description: 'Whether the process is starred',
+					},
+				],
+			},
+			{
+				displayName: 'Process ID',
+				name: 'processId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['task'],
+						operation: ['getProcessTask', 'updateProcessTask'],
+					},
+				},
+				description: 'The ID of the process (run) that contains the task',
+			},
+			{
+				displayName: 'Process ID (optional)',
+				name: 'processId',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['task'],
+						operation: ['complete', 'reopen'],
+					},
+				},
+				description: 'Set for a process task to use the run-scoped path. Leave empty for a one-off task.',
+			},
+			{
+				displayName: 'Approval Decision',
+				name: 'approvalDecision',
+				type: 'options',
+				options: [
+					{
+						name: 'Not an Approval',
+						value: 'none',
+					},
+					{
+						name: 'Approve',
+						value: 'approve',
+					},
+					{
+						name: 'Reject',
+						value: 'reject',
+					},
+				],
+				default: 'none',
+				displayOptions: {
+					show: {
+						resource: ['task'],
+						operation: ['complete'],
+					},
+				},
+				description: 'For approval steps only: whether to approve or reject',
+			},
+			{
+				displayName: 'User ID',
+				name: 'userId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['task'],
+						operation: ['getUserTasks'],
+					},
+				},
+				description: 'The ID of the member whose tasks to list',
+			},
+			{
+				displayName: 'Guest ID',
+				name: 'guestId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['task'],
+						operation: ['getGuestTasks'],
+					},
+				},
+				description: 'The guest ID (from the guest link) whose tasks to list',
+			},
+			{
+				displayName: 'Update Fields',
+				name: 'updateProcessTaskFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['task'],
+						operation: ['updateProcessTask'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Title',
+						name: 'title',
+						type: 'string',
+						default: '',
+					},
+					{
+						displayName: 'Summary',
+						name: 'summary',
+						type: 'string',
+						default: '',
+					},
+					{
+						displayName: 'Deadline',
+						name: 'deadline',
+						type: 'dateTime',
+						default: '',
+					},
+					{
+						displayName: 'Status',
+						name: 'status',
+						type: 'string',
+						default: '',
+						description: 'Task status',
+					},
+					{
+						displayName: 'Position',
+						name: 'position',
+						type: 'number',
+						default: 0,
+					},
+					{
+						displayName: 'Max Assignable',
+						name: 'max_assignable',
+						type: 'number',
+						default: 0,
+					},
+					{
+						displayName: 'Assign Users',
+						name: 'assignUsers',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated member IDs',
+					},
+					{
+						displayName: 'Assign Guests',
+						name: 'assignGuests',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated guest emails',
+					},
+					{
+						displayName: 'Assign Groups',
+						name: 'assignGroups',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated group IDs',
+					},
+					{
+						displayName: 'Task Data (JSON)',
+						name: 'taskdata',
+						type: 'json',
+						default: '{}',
+						description: 'Form field values keyed by capture ID',
+					},
+				],
+			},
+			{
+				displayName: 'Process ID',
+				name: 'processId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['comment'],
+						operation: ['list'],
+					},
+				},
+				description: 'The ID of the process (run) that contains the task',
+			},
+			{
+				displayName: 'Blueprint ID',
+				name: 'blueprintId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['addField', 'updateField', 'moveField', 'deleteField', 'getDropdownOptions', 'updateDropdownOptions', 'addKickoffField', 'updateKickoffField', 'deleteKickoffField', 'reorderKickoffField'],
+					},
+				},
+				description: 'The ID of the template (blueprint)',
+			},
+			{
+				displayName: 'Step ID',
+				name: 'stepId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['addField', 'updateField', 'moveField', 'deleteField', 'getDropdownOptions', 'updateDropdownOptions'],
+					},
+				},
+				description: 'The ID of the step',
+			},
+			{
+				displayName: 'Field ID',
+				name: 'captureFieldId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateField', 'moveField', 'deleteField', 'getDropdownOptions', 'updateDropdownOptions'],
+					},
+				},
+				description: 'The ID of the form field (capture)',
+			},
+			{
+				displayName: 'Target Step ID',
+				name: 'targetStepId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['moveField'],
+					},
+				},
+				description: 'The step to move the field to',
+			},
+			{
+				displayName: 'Position',
+				name: 'fieldPosition',
+				type: 'number',
+				default: 1,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['moveField'],
+					},
+				},
+				description: 'Position in the target step',
+			},
+			{
+				displayName: 'Field Definition (JSON)',
+				name: 'fieldData',
+				type: 'json',
+				default: '{}',
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['addField', 'updateField', 'addKickoffField', 'updateKickoffField'],
+					},
+				},
+				description: 'Field definition. For add, include field_type and label. For update, only the properties to change (field_type is immutable).',
+			},
+			{
+				displayName: 'Options',
+				name: 'dropdownOptions',
+				type: 'string',
+				typeOptions: {
+					rows: 4,
+				},
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateDropdownOptions'],
+					},
+				},
+				description: 'One option per line (or comma-separated); replaces the full options list',
+			},
+			{
+				displayName: 'Kickoff Field ID',
+				name: 'kickoffFieldId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateKickoffField', 'deleteKickoffField'],
+					},
+				},
+				description: 'The ID of the kickoff (prerun) field',
+			},
+			{
+				displayName: 'Field Order',
+				name: 'fieldOrder',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['reorderKickoffField'],
+					},
+				},
+				description: 'Comma-separated kickoff field IDs in the desired order',
+			},
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: {
+					show: {
+						resource: ['tag'],
+					},
+				},
+				options: [
+					{
+						name: 'Get Many',
+						value: 'getAll',
+						description: 'List org tags',
+						action: 'Get many tags',
+					},
+					{
+						name: 'Create',
+						value: 'create',
+						description: 'Create a tag',
+						action: 'Create a tag',
+					},
+					{
+						name: 'Update',
+						value: 'update',
+						description: 'Update a tag',
+						action: 'Update a tag',
+					},
+					{
+						name: 'Delete',
+						value: 'delete',
+						description: 'Delete a tag',
+						action: 'Delete a tag',
+					},
+					{
+						name: 'Tag Template',
+						value: 'tagTemplate',
+						description: 'Attach a tag to a template',
+						action: 'Tag a template',
+					},
+					{
+						name: 'Untag Template',
+						value: 'untagTemplate',
+						description: 'Remove a tag from a template',
+						action: 'Untag a template',
+					},
+					{
+						name: 'Tag Process',
+						value: 'tagProcess',
+						description: 'Attach a tag to a process',
+						action: 'Tag a process',
+					},
+					{
+						name: 'Untag Process',
+						value: 'untagProcess',
+						description: 'Remove a tag from a process',
+						action: 'Untag a process',
+					},
+				],
+				default: 'getAll',
+			},
+			{
+				displayName: 'Tag ID',
+				name: 'tagId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['tag'],
+						operation: ['update', 'delete', 'tagTemplate', 'tagProcess'],
+					},
+				},
+				description: 'The ID of the tag',
+			},
+			{
+				displayName: 'Title',
+				name: 'tagTitle',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['tag'],
+						operation: ['create'],
+					},
+				},
+				description: 'The tag title',
+			},
+			{
+				displayName: 'Title',
+				name: 'tagTitle',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['tag'],
+						operation: ['update'],
+					},
+				},
+				description: 'New tag title',
+			},
+			{
+				displayName: 'Color',
+				name: 'tagColor',
+				type: 'string',
+				placeholder: '#FF5733',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['tag'],
+						operation: ['create', 'update'],
+					},
+				},
+				description: 'Optional hex color',
+			},
+			{
+				displayName: 'Subject ID',
+				name: 'subjectId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['tag'],
+						operation: ['tagTemplate', 'tagProcess'],
+					},
+				},
+				description: 'The template or process ID to tag',
+			},
+			{
+				displayName: 'Association ID',
+				name: 'associationId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['tag'],
+						operation: ['untagTemplate', 'untagProcess'],
+					},
+				},
+				description: 'The tag-association ID (fetch the object with=tags to find it)',
+			},
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+					},
+				},
+				options: [
+					{
+						name: 'Get Many',
+						value: 'getAll',
+						description: 'List folders',
+						action: 'Get many folders',
+					},
+					{
+						name: 'Create',
+						value: 'create',
+						description: 'Create a folder',
+						action: 'Create a folder',
+					},
+					{
+						name: 'Update',
+						value: 'update',
+						description: 'Update a folder',
+						action: 'Update a folder',
+					},
+					{
+						name: 'Delete',
+						value: 'delete',
+						description: 'Delete a folder',
+						action: 'Delete a folder',
+					},
+					{
+						name: 'Add To Folder',
+						value: 'addToFolder',
+						description: 'Add a template or process to a folder',
+						action: 'Add to folder',
+					},
+					{
+						name: 'Remove From Folder',
+						value: 'removeFromFolder',
+						description: 'Remove an object from a folder',
+						action: 'Remove from folder',
+					},
+				],
+				default: 'getAll',
+			},
+			{
+				displayName: 'Folder Type',
+				name: 'folderType',
+				type: 'options',
+				options: [
+					{
+						name: 'Template Folders',
+						value: 'checklist',
+					},
+					{
+						name: 'Process Folders',
+						value: 'run',
+					},
+				],
+				default: 'checklist',
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+						operation: ['getAll'],
+					},
+				},
+				description: 'Which folder tree to list',
+			},
+			{
+				displayName: 'Name',
+				name: 'folderName',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+						operation: ['create'],
+					},
+				},
+				description: 'The folder name',
+			},
+			{
+				displayName: 'Name',
+				name: 'folderName',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+						operation: ['update'],
+					},
+				},
+				description: 'New folder name',
+			},
+			{
+				displayName: 'Folder ID',
+				name: 'folderId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+						operation: ['update', 'delete', 'addToFolder'],
+					},
+				},
+				description: 'The ID of the folder',
+			},
+			{
+				displayName: 'Parent Folder ID',
+				name: 'folderParentId',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+						operation: ['create', 'update'],
+					},
+				},
+				description: 'Optional parent folder ID for nesting',
+			},
+			{
+				displayName: 'Object Type',
+				name: 'folderObjectType',
+				type: 'options',
+				options: [
+					{
+						name: 'Template',
+						value: 'checklist',
+					},
+					{
+						name: 'Process',
+						value: 'run',
+					},
+				],
+				default: 'checklist',
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+						operation: ['addToFolder'],
+					},
+				},
+				description: 'Whether you are foldering a template or a process',
+			},
+			{
+				displayName: 'Object ID',
+				name: 'folderObjectId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+						operation: ['addToFolder'],
+					},
+				},
+				description: 'The template or process ID to put in the folder',
+			},
+			{
+				displayName: 'Folder Object ID',
+				name: 'folderRelationId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['folder'],
+						operation: ['removeFromFolder'],
+					},
+				},
+				description: 'The folder-object relation ID to remove',
+			},
 			// ===== GENERAL LIST OPERATION FIELDS =====
 			{
 				displayName: 'Return All',
@@ -1461,7 +2343,7 @@ export class Tallyfy implements INodeType {
 				type: 'boolean',
 				displayOptions: {
 					show: {
-						operation: ['getAll'],
+						operation: ['getAll', 'getMyTasks', 'getUserTasks', 'getGuestTasks'],
 					},
 				},
 				default: false,
@@ -1473,7 +2355,7 @@ export class Tallyfy implements INodeType {
 				type: 'number',
 				displayOptions: {
 					show: {
-						operation: ['getAll'],
+						operation: ['getAll', 'getMyTasks', 'getUserTasks', 'getGuestTasks'],
 						returnAll: [false],
 					},
 				},
@@ -1492,7 +2374,7 @@ export class Tallyfy implements INodeType {
 				default: {},
 				displayOptions: {
 					show: {
-						operation: ['getAll'],
+						operation: ['getAll', 'getMyTasks', 'getUserTasks', 'getGuestTasks'],
 					},
 				},
 				options: [
@@ -1582,6 +2464,39 @@ export class Tallyfy implements INodeType {
 		const baseUrl = (credentials.baseUrl as string) || 'https://go.tallyfy.com/api';
 		const organizationId = credentials.organizationId as string;
 
+		// Coerce a JSON-typed node parameter (which may arrive as a string) into an object.
+		const asObject = (value: unknown): IDataObject => {
+			if (typeof value === 'string') {
+				return value.trim() ? (JSON.parse(value) as IDataObject) : {};
+			}
+			return (value as IDataObject) || {};
+		};
+
+		// Small request helper used by the read-modify-write operations (kickoff fields,
+		// dropdown options, folder membership for templates) that need more than one call.
+		const doRequest = async (
+			reqMethod: 'GET' | 'POST' | 'PUT' | 'DELETE',
+			reqEndpoint: string,
+			reqBody?: IDataObject,
+			reqQs?: IDataObject,
+		): Promise<IDataObject> => {
+			const reqOptions: IHttpRequestOptions = {
+				method: reqMethod,
+				url: `${baseUrl}${reqEndpoint}`,
+				headers: {
+					'Accept': 'application/json',
+					'Content-Type': 'application/json',
+				},
+				qs: reqQs || {},
+				body: reqBody && Object.keys(reqBody).length ? reqBody : undefined,
+			};
+			return (await this.helpers.httpRequestWithAuthentication.call(
+				this,
+				'tallyfyApi',
+				reqOptions,
+			)) as IDataObject;
+		};
+
 		for (let i = 0; i < items.length; i++) {
 			try {
 				let responseData: IDataObject | IDataObject[] = {};
@@ -1589,6 +2504,8 @@ export class Tallyfy implements INodeType {
 				let method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET';
 				let body: IDataObject = {};
 				let qs: IDataObject = {};
+				// Set true by read-modify-write branches that already ran their own requests.
+				let skipGenericRequest = false;
 
 				// Blueprint operations
 				if (resource === 'blueprint') {
@@ -1640,6 +2557,28 @@ export class Tallyfy implements INodeType {
 						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
 						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}`;
 						method = 'DELETE';
+					}
+
+					if (operation === 'clone') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}/clone`;
+						method = 'POST';
+						// tenant is the org to clone FROM (same org here); title is the new name.
+						body.tenant = organizationId;
+						const cloneTitle = this.getNodeParameter('cloneTitle', i, '') as string;
+						if (cloneTitle) body.title = cloneTitle;
+					}
+
+					if (operation === 'getKickoffFields') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}/form-fields`;
+						method = 'GET';
+					}
+
+					if (operation === 'listSteps') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}/steps`;
+						method = 'GET';
 					}
 				}
 
@@ -1699,6 +2638,24 @@ export class Tallyfy implements INodeType {
 						endpoint = `/organizations/${organizationId}/runs/${processId}/tasks`;
 						method = 'GET';
 					}
+
+					if (operation === 'reactivate') {
+						const processId = this.getNodeParameter('processId', i) as string;
+						endpoint = `/organizations/${organizationId}/runs/${processId}/activate`;
+						method = 'PUT';
+					}
+
+					if (operation === 'completeKickoffForm') {
+						const processId = this.getNodeParameter('processId', i) as string;
+						endpoint = `/organizations/${organizationId}/runs/${processId}/complete-prerun`;
+						method = 'POST';
+					}
+
+					if (operation === 'reopenKickoffForm') {
+						const processId = this.getNodeParameter('processId', i) as string;
+						endpoint = `/organizations/${organizationId}/runs/${processId}/complete-prerun`;
+						method = 'DELETE';
+					}
 				}
 
 				// Task operations
@@ -1733,10 +2690,23 @@ export class Tallyfy implements INodeType {
 					
 					if (operation === 'complete') {
 						const taskId = this.getNodeParameter('taskId', i) as string;
-						endpoint = `/organizations/${organizationId}/completed-tasks`;
+						// Process tasks complete run-scoped; one-off tasks complete org-scoped (V1).
+						const completeProcessId = this.getNodeParameter('processId', i, '') as string;
+						if (completeProcessId) {
+							endpoint = `/organizations/${organizationId}/runs/${completeProcessId}/completed-tasks`;
+						} else {
+							endpoint = `/organizations/${organizationId}/completed-tasks`;
+						}
 						method = 'POST';
-						
+
 						body.task_id = taskId;
+						// Approval-type steps require is_approved (true/false); other steps ignore it.
+						const approvalDecision = this.getNodeParameter('approvalDecision', i, 'none') as string;
+						if (approvalDecision === 'approve') {
+							body.is_approved = true;
+						} else if (approvalDecision === 'reject') {
+							body.is_approved = false;
+						}
 						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 						if (additionalFields.comment) {
 							body.comment = additionalFields.comment;
@@ -1811,6 +2781,85 @@ export class Tallyfy implements INodeType {
 						endpoint = `/organizations/${organizationId}/tasks/${taskId}/clone`;
 						method = 'POST';
 					}
+
+					if (operation === 'getMyTasks') {
+						endpoint = `/organizations/${organizationId}/me/tasks`;
+						method = 'GET';
+
+						const returnAll = this.getNodeParameter('returnAll', i);
+						const filters = this.getNodeParameter('filters', i) as IDataObject;
+						if (filters.q) qs.q = filters.q;
+						if (filters.status) qs.status = filters.status;
+						if (filters.sort) qs.sort = filters.sort;
+						if (!returnAll) qs.limit = this.getNodeParameter('limit', i);
+					}
+
+					if (operation === 'getUserTasks') {
+						const userId = this.getNodeParameter('userId', i) as string;
+						endpoint = `/organizations/${organizationId}/users/${userId}/tasks`;
+						method = 'GET';
+
+						const returnAll = this.getNodeParameter('returnAll', i);
+						const filters = this.getNodeParameter('filters', i) as IDataObject;
+						if (filters.status) qs.status = filters.status;
+						if (filters.sort) qs.sort = filters.sort;
+						if (!returnAll) qs.limit = this.getNodeParameter('limit', i);
+					}
+
+					if (operation === 'getGuestTasks') {
+						const guestId = this.getNodeParameter('guestId', i) as string;
+						endpoint = `/organizations/${organizationId}/guests/${guestId}/tasks`;
+						method = 'GET';
+
+						const returnAll = this.getNodeParameter('returnAll', i);
+						const filters = this.getNodeParameter('filters', i) as IDataObject;
+						if (filters.status) qs.status = filters.status;
+						if (filters.sort) qs.sort = filters.sort;
+						if (!returnAll) qs.limit = this.getNodeParameter('limit', i);
+					}
+
+					if (operation === 'reopen') {
+						const taskId = this.getNodeParameter('taskId', i) as string;
+						// Process tasks reopen run-scoped; one-off tasks reopen org-scoped (V2).
+						const reopenProcessId = this.getNodeParameter('processId', i, '') as string;
+						if (reopenProcessId) {
+							endpoint = `/organizations/${organizationId}/runs/${reopenProcessId}/completed-tasks/${taskId}`;
+						} else {
+							endpoint = `/organizations/${organizationId}/completed-tasks/${taskId}`;
+						}
+						method = 'DELETE';
+					}
+
+					if (operation === 'getProcessTask') {
+						const processId = this.getNodeParameter('processId', i) as string;
+						const taskId = this.getNodeParameter('taskId', i) as string;
+						endpoint = `/organizations/${organizationId}/runs/${processId}/tasks/${taskId}`;
+						method = 'GET';
+					}
+
+					if (operation === 'updateProcessTask') {
+						const processId = this.getNodeParameter('processId', i) as string;
+						const taskId = this.getNodeParameter('taskId', i) as string;
+						endpoint = `/organizations/${organizationId}/runs/${processId}/tasks/${taskId}`;
+						method = 'PUT';
+
+						const f = this.getNodeParameter('updateProcessTaskFields', i) as IDataObject;
+						if (f.title) body.title = f.title;
+						if (f.summary) body.summary = f.summary;
+						if (f.deadline) body.deadline = f.deadline;
+						if (f.status) body.status = f.status;
+						if (f.position !== undefined && f.position !== '') body.position = f.position;
+						if (f.max_assignable !== undefined && f.max_assignable !== '') body.max_assignable = f.max_assignable;
+						if (f.taskdata) body.taskdata = asObject(f.taskdata);
+
+						if (f.assignUsers || f.assignGuests || f.assignGroups) {
+							const owners: IDataObject = { users: [], guests: [], groups: [] };
+							if (f.assignUsers) (owners.users as string[]) = (f.assignUsers as string).split(',').map(id => id.trim());
+							if (f.assignGuests) (owners.guests as string[]) = (f.assignGuests as string).split(',').map(email => email.trim());
+							if (f.assignGroups) (owners.groups as string[]) = (f.assignGroups as string).split(',').map(id => id.trim());
+							body.owners = owners;
+						}
+					}
 				}
 
 				// Form Field operations
@@ -1844,6 +2893,152 @@ export class Tallyfy implements INodeType {
 						
 						body.id = formFieldId;
 						body.form_value = fieldValue;
+					}
+
+					// Add a form field (capture) to a template step.
+					if (operation === 'addField') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const stepId = this.getNodeParameter('stepId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}/steps/${stepId}/captures`;
+						method = 'POST';
+						body = asObject(this.getNodeParameter('fieldData', i));
+					}
+
+					// Update a form field (capture) on a template step (field_type is immutable).
+					if (operation === 'updateField') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const stepId = this.getNodeParameter('stepId', i) as string;
+						const captureFieldId = this.getNodeParameter('captureFieldId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}/steps/${stepId}/captures/${captureFieldId}`;
+						method = 'PUT';
+						body = asObject(this.getNodeParameter('fieldData', i));
+					}
+
+					// Move a form field to another step.
+					if (operation === 'moveField') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const stepId = this.getNodeParameter('stepId', i) as string;
+						const captureFieldId = this.getNodeParameter('captureFieldId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}/steps/${stepId}/captures/${captureFieldId}/move-out`;
+						method = 'PUT';
+						body.target_step_id = this.getNodeParameter('targetStepId', i) as string;
+						body.position = this.getNodeParameter('fieldPosition', i, 1);
+					}
+
+					// Delete a form field from a template step.
+					if (operation === 'deleteField') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const stepId = this.getNodeParameter('stepId', i) as string;
+						const captureFieldId = this.getNodeParameter('captureFieldId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}/steps/${stepId}/captures/${captureFieldId}`;
+						method = 'DELETE';
+					}
+
+					// Read the current options of a choice field (fetches the parent step, extracts the field).
+					if (operation === 'getDropdownOptions') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const stepId = this.getNodeParameter('stepId', i) as string;
+						const captureFieldId = this.getNodeParameter('captureFieldId', i) as string;
+						const stepResp = await doRequest('GET', `/organizations/${organizationId}/checklists/${blueprintId}/steps/${stepId}`);
+						const stepData = ((stepResp.data as IDataObject) || stepResp);
+						const captures = ((stepData.captures as IDataObject[]) || []);
+						const field = captures.find((c: IDataObject) => c.id === captureFieldId);
+						responseData = { id: captureFieldId, options: (field ? field.options : []) as IDataObject };
+						skipGenericRequest = true;
+					}
+
+					// Replace the full options list on a choice field (read the capture, PUT it back with new options).
+					if (operation === 'updateDropdownOptions') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const stepId = this.getNodeParameter('stepId', i) as string;
+						const captureFieldId = this.getNodeParameter('captureFieldId', i) as string;
+						const optionsRaw = this.getNodeParameter('dropdownOptions', i) as string;
+						const optionTexts = optionsRaw.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+						const formatted = optionTexts.map((text, idx) => ({ id: idx + 1, text }));
+
+						const stepResp = await doRequest('GET', `/organizations/${organizationId}/checklists/${blueprintId}/steps/${stepId}`);
+						const stepData = ((stepResp.data as IDataObject) || stepResp);
+						const captures = ((stepData.captures as IDataObject[]) || []);
+						const current = captures.find((c: IDataObject) => c.id === captureFieldId);
+						if (!current) {
+							throw new Error(`Form field ${captureFieldId} not found in step ${stepId}`);
+						}
+						const putBody: IDataObject = { ...current };
+						delete putBody.id;
+						putBody.options = formatted;
+						responseData = await doRequest('PUT', `/organizations/${organizationId}/checklists/${blueprintId}/steps/${stepId}/captures/${captureFieldId}`, putBody);
+						skipGenericRequest = true;
+					}
+
+					// Add a kickoff (prerun) field: read the template, append, PUT it back (V6).
+					if (operation === 'addKickoffField') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const fieldData = asObject(this.getNodeParameter('fieldData', i));
+						const tmpl = await doRequest('GET', `/organizations/${organizationId}/checklists/${blueprintId}`, undefined, { with: 'prerun' });
+						const tmplData = ((tmpl.data as IDataObject) || tmpl);
+						const prerun = ((tmplData.prerun as IDataObject[]) || []);
+						prerun.push(fieldData);
+						responseData = await doRequest('PUT', `/organizations/${organizationId}/checklists/${blueprintId}`, { title: tmplData.title, prerun });
+						skipGenericRequest = true;
+					}
+
+					// Update a kickoff (prerun) field: read the template, merge changes, PUT it back (V6).
+					if (operation === 'updateKickoffField') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const kickoffFieldId = this.getNodeParameter('kickoffFieldId', i) as string;
+						const fieldData = asObject(this.getNodeParameter('fieldData', i));
+						const tmpl = await doRequest('GET', `/organizations/${organizationId}/checklists/${blueprintId}`, undefined, { with: 'prerun' });
+						const tmplData = ((tmpl.data as IDataObject) || tmpl);
+						const prerun = ((tmplData.prerun as IDataObject[]) || []);
+						const target = prerun.find((f: IDataObject) => f.id === kickoffFieldId);
+						if (!target) {
+							throw new Error(`Kickoff field ${kickoffFieldId} not found on template ${blueprintId}`);
+						}
+						Object.assign(target, fieldData);
+						responseData = await doRequest('PUT', `/organizations/${organizationId}/checklists/${blueprintId}`, { title: tmplData.title, prerun });
+						skipGenericRequest = true;
+					}
+
+					// Delete a kickoff (prerun) field (dedicated endpoint).
+					if (operation === 'deleteKickoffField') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const kickoffFieldId = this.getNodeParameter('kickoffFieldId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/${blueprintId}/preruns/${kickoffFieldId}`;
+						method = 'DELETE';
+					}
+
+					// Reorder kickoff (prerun) fields by writing explicit positions, then PUT (V6).
+					if (operation === 'reorderKickoffField') {
+						const blueprintId = this.getNodeParameter('blueprintId', i) as string;
+						const orderRaw = this.getNodeParameter('fieldOrder', i) as string;
+						const order = orderRaw.split(',').map(s => s.trim()).filter(Boolean);
+						const tmpl = await doRequest('GET', `/organizations/${organizationId}/checklists/${blueprintId}`, undefined, { with: 'prerun' });
+						const tmplData = ((tmpl.data as IDataObject) || tmpl);
+						const prerun = ((tmplData.prerun as IDataObject[]) || []);
+						const byId: IDataObject = {};
+						for (const f of prerun) {
+							if (f.id) byId[f.id as string] = f;
+						}
+						const reordered: IDataObject[] = [];
+						let pos = 1;
+						for (const fid of order) {
+							const item = byId[fid] as IDataObject;
+							if (!item) {
+								throw new Error(`Kickoff field ${fid} not found on template ${blueprintId}`);
+							}
+							item.position = pos++;
+							reordered.push(item);
+							delete byId[fid];
+						}
+						// Append any fields the caller omitted, continuing the position sequence.
+						for (const f of prerun) {
+							if (f.id && byId[f.id as string]) {
+								f.position = pos++;
+								reordered.push(f);
+							}
+						}
+						responseData = await doRequest('PUT', `/organizations/${organizationId}/checklists/${blueprintId}`, { title: tmplData.title, prerun: reordered });
+						skipGenericRequest = true;
 					}
 				}
 
@@ -1888,6 +3083,14 @@ export class Tallyfy implements INodeType {
 						const commentId = this.getNodeParameter('commentId', i) as string;
 						endpoint = `/organizations/${organizationId}/tasks/${taskId}/comment/${commentId}`;
 						method = 'DELETE';
+					}
+
+					// List all comments/threads on a process task (embedded via with=threads).
+					if (operation === 'list') {
+						const processId = this.getNodeParameter('processId', i) as string;
+						endpoint = `/organizations/${organizationId}/runs/${processId}/tasks/${taskId}`;
+						method = 'GET';
+						qs.with = 'threads';
 					}
 				}
 
@@ -1954,6 +3157,11 @@ export class Tallyfy implements INodeType {
 						endpoint = `/organizations/${organizationId}/users/${userId}/to/guest`;
 						method = 'PUT';
 					}
+
+					if (operation === 'getOrganization') {
+						endpoint = `/organizations/${organizationId}`;
+						method = 'GET';
+					}
 				}
 
 				// Guest operations
@@ -2011,6 +3219,18 @@ export class Tallyfy implements INodeType {
 						const email = this.getNodeParameter('email', i) as string;
 						endpoint = `/organizations/${organizationId}/guests/${email}/to/member`;
 						method = 'POST';
+					}
+
+					if (operation === 'enable') {
+						const email = this.getNodeParameter('email', i) as string;
+						endpoint = `/organizations/${organizationId}/guests/${email}/enable`;
+						method = 'PUT';
+					}
+
+					if (operation === 'disable') {
+						const email = this.getNodeParameter('email', i) as string;
+						endpoint = `/organizations/${organizationId}/guests/${email}/disable`;
+						method = 'DELETE';
 					}
 				}
 
@@ -2087,6 +3307,8 @@ export class Tallyfy implements INodeType {
 						qs.on = 'process';
 					} else if (operation === 'blueprints') {
 						qs.on = 'blueprint';
+					} else if (operation === 'snippets') {
+						qs.on = 'snippet';
 					}
 					
 					qs.per_page = 50;
@@ -2144,7 +3366,138 @@ export class Tallyfy implements INodeType {
 					}
 				}
 
-				// Make the API request
+				// Tag operations
+				if (resource === 'tag') {
+					if (operation === 'getAll') {
+						endpoint = `/organizations/${organizationId}/tags`;
+						method = 'GET';
+
+						const returnAll = this.getNodeParameter('returnAll', i);
+						const filters = this.getNodeParameter('filters', i) as IDataObject;
+						if (filters.q) qs.q = filters.q;
+						if (filters.status) qs.status = filters.status;
+						if (filters.sort) qs.sort = filters.sort;
+						if (!returnAll) qs.limit = this.getNodeParameter('limit', i);
+					}
+
+					if (operation === 'create') {
+						endpoint = `/organizations/${organizationId}/tags`;
+						method = 'POST';
+						body.title = this.getNodeParameter('tagTitle', i) as string;
+						const tagColor = this.getNodeParameter('tagColor', i, '') as string;
+						if (tagColor) body.color = tagColor;
+					}
+
+					if (operation === 'update') {
+						const tagId = this.getNodeParameter('tagId', i) as string;
+						endpoint = `/organizations/${organizationId}/tags/${tagId}`;
+						method = 'PUT';
+						const tagTitle = this.getNodeParameter('tagTitle', i, '') as string;
+						const tagColor = this.getNodeParameter('tagColor', i, '') as string;
+						if (tagTitle) body.title = tagTitle;
+						if (tagColor) body.color = tagColor;
+					}
+
+					if (operation === 'delete') {
+						const tagId = this.getNodeParameter('tagId', i) as string;
+						endpoint = `/organizations/${organizationId}/tags/${tagId}`;
+						method = 'DELETE';
+					}
+
+					// Tag/untag use ONE association endpoint for both templates and processes (V7).
+					if (operation === 'tagTemplate') {
+						endpoint = `/organizations/${organizationId}/checklists/tags`;
+						method = 'POST';
+						body.subject_id = this.getNodeParameter('subjectId', i) as string;
+						body.subject_type = 'Checklist';
+						body.tag_id = this.getNodeParameter('tagId', i) as string;
+						body.tag_type = 'private';
+					}
+
+					if (operation === 'tagProcess') {
+						endpoint = `/organizations/${organizationId}/checklists/tags`;
+						method = 'POST';
+						body.subject_id = this.getNodeParameter('subjectId', i) as string;
+						body.subject_type = 'Run';
+						body.tag_id = this.getNodeParameter('tagId', i) as string;
+						body.tag_type = 'private';
+					}
+
+					// Untag needs the tag-association id (fetch the object with=tags to find it).
+					if (operation === 'untagTemplate' || operation === 'untagProcess') {
+						const associationId = this.getNodeParameter('associationId', i) as string;
+						endpoint = `/organizations/${organizationId}/checklists/tags/${associationId}`;
+						method = 'DELETE';
+					}
+				}
+
+				// Folder operations
+				if (resource === 'folder') {
+					if (operation === 'getAll') {
+						endpoint = `/organizations/${organizationId}/folders`;
+						method = 'GET';
+						qs.folder_type = this.getNodeParameter('folderType', i) as string;
+						qs.with = 'children';
+						qs.sort = 'position';
+
+						const returnAll = this.getNodeParameter('returnAll', i);
+						if (!returnAll) qs.limit = this.getNodeParameter('limit', i);
+					}
+
+					if (operation === 'create') {
+						endpoint = `/organizations/${organizationId}/folders`;
+						method = 'POST';
+						body.name = this.getNodeParameter('folderName', i) as string;
+						const parentId = this.getNodeParameter('folderParentId', i, '') as string;
+						if (parentId) body.parent_id = parentId;
+					}
+
+					if (operation === 'update') {
+						const folderId = this.getNodeParameter('folderId', i) as string;
+						endpoint = `/organizations/${organizationId}/folders/${folderId}`;
+						method = 'PUT';
+						const folderName = this.getNodeParameter('folderName', i, '') as string;
+						const parentId = this.getNodeParameter('folderParentId', i, '') as string;
+						if (folderName) body.name = folderName;
+						if (parentId) body.parent_id = parentId;
+					}
+
+					if (operation === 'delete') {
+						const folderId = this.getNodeParameter('folderId', i) as string;
+						endpoint = `/organizations/${organizationId}/folders/${folderId}`;
+						method = 'DELETE';
+					}
+
+					// Add To Folder is asymmetric: templates are foldered on the checklist itself,
+					// processes via the add-object endpoint (V8).
+					if (operation === 'addToFolder') {
+						const folderId = this.getNodeParameter('folderId', i) as string;
+						const objectId = this.getNodeParameter('folderObjectId', i) as string;
+						const objectType = this.getNodeParameter('folderObjectType', i) as string;
+						if (objectType === 'checklist') {
+							// The checklist PUT requires title, so fetch it first.
+							const tmpl = await doRequest('GET', `/organizations/${organizationId}/checklists/${objectId}`);
+							const tmplData = ((tmpl.data as IDataObject) || tmpl);
+							responseData = await doRequest('PUT', `/organizations/${organizationId}/checklists/${objectId}`, { title: tmplData.title, folder_id: folderId });
+							skipGenericRequest = true;
+						} else {
+							endpoint = `/organizations/${organizationId}/folders/add-object`;
+							method = 'POST';
+							body.folder_id = folderId;
+							body.subject_id = objectId;
+							body.subject_type = 'Run';
+						}
+					}
+
+					if (operation === 'removeFromFolder') {
+						const folderObjectId = this.getNodeParameter('folderRelationId', i) as string;
+						endpoint = `/organizations/${organizationId}/folders-objects/${folderObjectId}`;
+						method = 'DELETE';
+					}
+				}
+
+				// Make the API request (skipped when a read-modify-write branch already ran)
+				if (!skipGenericRequest) {
 				const options: IHttpRequestOptions = {
 					method,
 					url: `${baseUrl}${endpoint}`,
@@ -2186,6 +3539,14 @@ export class Tallyfy implements INodeType {
 						page++;
 					}
 					responseData = allItems;
+				}
+				}
+
+				// Comment list returns the task object with threads embedded; surface the threads
+				if (resource === 'comment' && operation === 'list') {
+					const taskObj = ((responseData as IDataObject).data as IDataObject) || (responseData as IDataObject);
+					const threadsWrapper = (taskObj?.threads as IDataObject) || {};
+					responseData = ((threadsWrapper.data as IDataObject[]) || []);
 				}
 
 				// Special handling for ID Finder - return simplified results
