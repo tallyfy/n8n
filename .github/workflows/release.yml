@@ -1,0 +1,59 @@
+# Publishes n8n-nodes-tallyfy to npm with provenance (required for n8n verified
+# community nodes since 2026-05-01). Triggered by pushing a version tag (v*).
+#
+# Setup required once: add an npm automation token with publish rights for
+# n8n-nodes-tallyfy as the NPM_TOKEN repository secret. Provenance itself needs
+# no secret - it uses the workflow's OIDC token (id-token: write) and requires
+# this repository to be public.
+#
+# Release flow:
+#   1. Bump "version" in package.json (commit to main)
+#   2. git tag vX.Y.Z && git push origin vX.Y.Z
+#   3. This workflow lints, builds, verifies the tag matches package.json, and
+#      publishes with --provenance.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Publish to npm with provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

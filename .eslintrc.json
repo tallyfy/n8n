@@ -8,18 +8,58 @@
   "parserOptions": {
     "project": "./tsconfig.json",
     "sourceType": "module",
-    "ecmaVersion": 2020
+    "ecmaVersion": 2020,
+    "extraFileExtensions": [".json"]
   },
   "ignorePatterns": [
     ".eslintrc.json",
     "node_modules/**",
     "dist/**"
   ],
-  "extends": [
-    "@typescript-eslint/recommended"
-  ],
-  "rules": {
-    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
-    "@typescript-eslint/no-explicit-any": "warn"
-  }
+  "overrides": [
+    {
+      "files": ["package.json"],
+      "parser": "jsonc-eslint-parser",
+      "plugins": ["eslint-plugin-n8n-nodes-base"],
+      "extends": ["plugin:n8n-nodes-base/community"]
+    },
+    {
+      "files": ["**/*.ts"],
+      "extends": ["plugin:@typescript-eslint/recommended"],
+      "rules": {
+        "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+        "@typescript-eslint/no-explicit-any": "warn"
+      }
+    },
+    {
+      "files": ["credentials/**/*.ts"],
+      "plugins": ["eslint-plugin-n8n-nodes-base"],
+      "extends": ["plugin:n8n-nodes-base/credentials"],
+      "rules": {
+        // documentationUrl holds a real HTTPS URL (the modern n8n convention, enforced
+        // by cred-class-field-documentation-url-not-http-url). The miscased rule predates
+        // that convention and its autofix mangles URLs into camelCase; the official
+        // n8n-nodes-starter disables it too.
+        "n8n-nodes-base/cred-class-field-documentation-url-miscased": "off"
+      }
+    },
+    {
+      "files": ["nodes/**/*.ts"],
+      "plugins": ["eslint-plugin-n8n-nodes-base"],
+      "extends": ["plugin:n8n-nodes-base/nodes"],
+      "rules": {
+        // Deferred to the verified-node re-scaffold (tallyfy/n8n#4): these rules force
+        // user-visible UI or runtime-behavior changes (reordering option dropdowns,
+        // removing input validation caps, changing widget types, changing thrown error
+        // classes). They are out of scope for a tooling/deps-only change and will be
+        // addressed together with the @n8n/node-cli migration.
+        "n8n-nodes-base/node-param-options-type-unsorted-items": "off",
+        "n8n-nodes-base/node-param-collection-type-unsorted-items": "off",
+        "n8n-nodes-base/node-param-multi-options-type-unsorted-items": "off",
+        "n8n-nodes-base/node-param-type-options-max-value-present": "off",
+        "n8n-nodes-base/node-param-color-type-unused": "off",
+        "n8n-nodes-base/node-execute-block-wrong-error-thrown": "off"
+      }
+    }
+  ]
 }

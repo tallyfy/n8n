@@ -7,8 +7,6 @@ import type {
 	IHttpRequestOptions,
 } from 'n8n-workflow';
 
-import { NodeConnectionType } from 'n8n-workflow';
-
 // Cap the number of ids we remember per event so workflow static data stays small.
 const SEEN_CAP = 5000;
 
@@ -26,7 +24,7 @@ export class TallyfyTrigger implements INodeType {
 		},
 		polling: true,
 		inputs: [],
-		outputs: [NodeConnectionType.Main],
+		outputs: ['main'],
 		credentials: [
 			{
 				name: 'tallyfyApi',
@@ -141,7 +139,7 @@ export class TallyfyTrigger implements INodeType {
 					maxValue: 100,
 				},
 				default: 50,
-				description: 'Max number of newest items to fetch per poll (dedup is by id across polls)',
+				description: 'Max number of results to return',
 			},
 		],
 	};

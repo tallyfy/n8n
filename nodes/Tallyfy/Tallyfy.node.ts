@@ -7,8 +7,6 @@ import type {
 	IHttpRequestOptions,
 } from 'n8n-workflow';
 
-import { NodeConnectionType } from 'n8n-workflow';
-
 export class Tallyfy implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Tallyfy',
@@ -21,8 +19,8 @@ export class Tallyfy implements INodeType {
 		defaults: {
 			name: 'Tallyfy',
 		},
-		inputs: [NodeConnectionType.Main],
-		outputs: [NodeConnectionType.Main],
+		inputs: ['main'],
+		outputs: ['main'],
 		credentials: [
 			{
 				name: 'tallyfyApi',
@@ -251,7 +249,7 @@ export class Tallyfy implements INodeType {
 						name: 'Create One-Off',
 						value: 'createOneOff',
 						description: 'Create a standalone task with all properties',
-						action: 'Create one-off task',
+						action: 'Create one off task',
 					},
 					{
 						name: 'Complete',
@@ -968,7 +966,7 @@ export class Tallyfy implements INodeType {
 			},
 			// Task property update fields
 			{
-				displayName: 'Properties to Update',
+				displayName: 'Update Fields',
 				name: 'updateFields',
 				type: 'collection',
 				placeholder: 'Add Property',
@@ -1038,14 +1036,14 @@ export class Tallyfy implements INodeType {
 						name: 'prevent_guest_comment',
 						type: 'boolean',
 						default: false,
-						description: 'Prevent guests from commenting',
+						description: 'Whether to prevent guests from commenting',
 					},
 					{
 						displayName: 'Top Secret',
 						name: 'top_secret',
 						type: 'boolean',
 						default: false,
-						description: 'Mark task as top secret',
+						description: 'Whether to mark the task as top secret',
 					},
 				],
 			},
@@ -1104,7 +1102,7 @@ export class Tallyfy implements INodeType {
 						name: 'everyone_must_complete',
 						type: 'boolean',
 						default: false,
-						description: 'All assignees must complete the task',
+						description: 'Whether all assignees must complete the task',
 					},
 					{
 						displayName: 'Comment',
@@ -1227,7 +1225,7 @@ export class Tallyfy implements INodeType {
 						operation: ['updateValue'],
 					},
 				},
-				description: 'Update as a guest (requires guest email)',
+				description: 'Whether to update as a guest (requires guest email)',
 			},
 			{
 				displayName: 'Guest Email',
@@ -1533,7 +1531,6 @@ export class Tallyfy implements INodeType {
 						resource: ['search'],
 					},
 				},
-				description: 'The search query',
 			},
 			{
 				displayName: 'Search In',
@@ -1726,7 +1723,7 @@ export class Tallyfy implements INodeType {
 				description: 'The ID of the process (run) that contains the task',
 			},
 			{
-				displayName: 'Process ID (optional)',
+				displayName: 'Process ID (Optional)',
 				name: 'processId',
 				type: 'string',
 				default: '',
@@ -2503,7 +2500,7 @@ export class Tallyfy implements INodeType {
 				let endpoint = '';
 				let method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET';
 				let body: IDataObject = {};
-				let qs: IDataObject = {};
+				const qs: IDataObject = {};
 				// Set true by read-modify-write branches that already ran their own requests.
 				let skipGenericRequest = false;
 
