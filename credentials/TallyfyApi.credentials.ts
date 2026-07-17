@@ -35,7 +35,7 @@ export class TallyfyApi implements ICredentialType {
 			type: 'string',
 			default: '',
 			required: true,
-			description: 'Your Tallyfy Organization ID. You can find this in your Tallyfy URL (e.g., https://app.tallyfy.com/org/YOUR_ORG_ID)',
+			description: 'Your Tallyfy Organization ID. You can find this in your Tallyfy URL (e.g., https://go.tallyfy.com/organizations/YOUR_ORG_ID)',
 		},
 	];
 
