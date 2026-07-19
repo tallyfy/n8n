@@ -3506,13 +3506,8 @@ export class Tallyfy implements INodeType {
 					body: Object.keys(body).length ? body : undefined,
 				};
 
-				responseData = await this.helpers.httpRequestWithAuthentication.call(
-					this,
-					'tallyfyApi',
-					options,
-				);
-
-				// Handle pagination if needed
+				// returnAll walks every page in the loop below, so it must NOT also
+				// fire the base request here (that previously double-fetched page 1). See #5.
 				if (operation === 'getAll' && this.getNodeParameter('returnAll', i)) {
 					const allItems: IDataObject[] = [];
 					let hasMore = true;
@@ -3536,6 +3531,12 @@ export class Tallyfy implements INodeType {
 						page++;
 					}
 					responseData = allItems;
+				} else {
+					responseData = await this.helpers.httpRequestWithAuthentication.call(
+						this,
+						'tallyfyApi',
+						options,
+					);
 				}
 				}
 

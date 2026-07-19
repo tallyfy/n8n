@@ -204,16 +204,17 @@ describe('Tallyfy node - request building', () => {
 			const { result, httpMock } = await run(
 				{ resource: 'blueprint', operation: 'getAll', returnAll: true, filters: {} },
 				[
-					{ data: [] }, // initial (non-paged) request, discarded by the returnAll branch
 					{ data: [{ id: 'a' }], meta: { pagination: { has_more_pages: true } } },
 					{ data: [{ id: 'b' }], meta: { pagination: { has_more_pages: false } } },
 				],
 			);
 			// Output is the concatenation of all pages.
 			expect(result[0].map((i) => i.json)).toEqual([{ id: 'a' }, { id: 'b' }]);
-			// Page cursor is carried on the query string across loop iterations.
-			expect(requestAt(httpMock, 1).qs).toMatchObject({ page: 1 });
-			expect(requestAt(httpMock, 2).qs).toMatchObject({ page: 2 });
+			// The loop is the only fetch path: page 1 then page 2, with no discarded
+			// base request (page 1 is fetched exactly once). Regression lock for #5.
+			expect(httpMock).toHaveBeenCalledTimes(2);
+			expect(requestAt(httpMock, 0).qs).toMatchObject({ page: 1 });
+			expect(requestAt(httpMock, 1).qs).toMatchObject({ page: 2 });
 		});
 	});
 
