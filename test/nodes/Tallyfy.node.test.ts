@@ -254,6 +254,120 @@ describe('Tallyfy node - request building', () => {
 		});
 	});
 
+	describe('Form Field: Update Value (type-dependent form_value)', () => {
+		const base = { resource: 'formField', operation: 'updateValue', formFieldId: 'CV1', asGuest: false };
+
+		it('PUTs a bare scalar and defaults to text when no field type is set', async () => {
+			// Backward compatibility: workflows saved before the Field Type param existed
+			// carry no fieldType and must keep sending exactly what they sent before.
+			const { httpMock } = await run({ ...base, fieldValue: 'Hello' });
+			const opts = requestAt(httpMock, 0);
+			expect(opts.method).toBe('PUT');
+			expect(opts.url).toBe(`${BASE}/organizations/${ORG}/form-field/value`);
+			expect(opts.body).toEqual({ id: 'CV1', form_value: 'Hello' });
+		});
+
+		it('sends radio as bare option text, not as an object', async () => {
+			const { httpMock } = await run({ ...base, fieldType: 'radio', fieldValue: 'Option B' });
+			expect(requestAt(httpMock, 0).body).toEqual({ id: 'CV1', form_value: 'Option B' });
+		});
+
+		it('sends dropdown as an id and text pair, with a numeric id as a number', async () => {
+			const { httpMock } = await run({
+				...base,
+				fieldType: 'dropdown',
+				dropdownOptionId: '2',
+				dropdownOptionText: 'Option B',
+			});
+			expect(requestAt(httpMock, 0).body).toEqual({
+				id: 'CV1',
+				form_value: { id: 2, text: 'Option B' },
+			});
+		});
+
+		it('keeps a non-numeric dropdown option id as a string', async () => {
+			const { httpMock } = await run({
+				...base,
+				fieldType: 'dropdown',
+				dropdownOptionId: 'opt-a',
+				dropdownOptionText: 'Option A',
+			});
+			expect((requestAt(httpMock, 0).body as Record<string, unknown>).form_value).toEqual({
+				id: 'opt-a',
+				text: 'Option A',
+			});
+		});
+
+		it('sends multiselect as a list of option objects, preserving selected flags', async () => {
+			const { httpMock } = await run({
+				...base,
+				fieldType: 'multiselect',
+				fieldValueJson: '[{"id":1,"text":"A","selected":true},{"id":2,"text":"B","selected":true}]',
+			});
+			expect((requestAt(httpMock, 0).body as Record<string, unknown>).form_value).toEqual([
+				{ id: 1, text: 'A', selected: true },
+				{ id: 2, text: 'B', selected: true },
+			]);
+		});
+
+		it('sends table rows as a list rather than collapsing them into an object', async () => {
+			// The API requires the list length to equal the field's column count, so the
+			// array must survive coercion intact.
+			const { httpMock } = await run({
+				...base,
+				fieldType: 'table',
+				fieldValueJson: '["Alpha","Beta"]',
+			});
+			expect((requestAt(httpMock, 0).body as Record<string, unknown>).form_value).toEqual([
+				'Alpha',
+				'Beta',
+			]);
+		});
+
+		it('sends assignees as users, guests and groups lists of strings', async () => {
+			const { httpMock } = await run({
+				...base,
+				fieldType: 'assignees_form',
+				assigneesUsers: '12, 34',
+				assigneesGuests: 'guest@example.com',
+				assigneesGroups: 'grp1',
+			});
+			expect((requestAt(httpMock, 0).body as Record<string, unknown>).form_value).toEqual({
+				users: ['12', '34'],
+				guests: ['guest@example.com'],
+				groups: ['grp1'],
+			});
+		});
+
+		it('omits empty assignee groups instead of sending empty lists', async () => {
+			const { httpMock } = await run({
+				...base,
+				fieldType: 'assignees_form',
+				assigneesUsers: '12',
+				assigneesGuests: '',
+				assigneesGroups: '',
+			});
+			expect((requestAt(httpMock, 0).body as Record<string, unknown>).form_value).toEqual({
+				users: ['12'],
+			});
+		});
+
+		it('POSTs to the guest endpoint when As Guest is set', async () => {
+			const { httpMock } = await run({
+				...base,
+				asGuest: true,
+				guestEmail: 'guest@example.com',
+				fieldType: 'dropdown',
+				dropdownOptionId: '1',
+				dropdownOptionText: 'Option A',
+			});
+			const opts = requestAt(httpMock, 0);
+			expect(opts.method).toBe('POST');
+			expect(opts.url).toBe(`${BASE}/organizations/${ORG}/guests/guest@example.com/form-field/value`);
+			expect(opts.body).toEqual({ id: 'CV1', form_value: { id: 1, text: 'Option A' } });
+		});
+	});
+
 	describe('Error handling', () => {
 		it('surfaces the error as JSON when continueOnFail is on', async () => {
 			const { ctx, httpMock } = createContextMock({

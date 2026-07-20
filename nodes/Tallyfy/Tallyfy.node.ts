@@ -1201,6 +1201,32 @@ export class Tallyfy implements INodeType {
 				description: 'The ID of the form field (CaptureValue ID)',
 			},
 			{
+				displayName: 'Field Type',
+				name: 'fieldType',
+				type: 'options',
+				options: [
+					{ name: 'Short Text', value: 'text' },
+					{ name: 'Long Text', value: 'textarea' },
+					{ name: 'Email', value: 'email' },
+					{ name: 'Date', value: 'date' },
+					{ name: 'Radio Buttons', value: 'radio' },
+					{ name: 'Dropdown', value: 'dropdown' },
+					{ name: 'Multi-Select', value: 'multiselect' },
+					{ name: 'Table', value: 'table' },
+					{ name: 'Assignees', value: 'assignees_form' },
+					{ name: 'File', value: 'file' },
+				],
+				default: 'text',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateValue'],
+					},
+				},
+				description: 'The field_type of the field being set. The API validates form_value against it and rejects the wrong shape, so it must match the field as defined on the step or kickoff form. Get Fields reports each field\'s field_type and options.',
+			},
+			{
 				displayName: 'Field Value',
 				name: 'fieldValue',
 				type: 'string',
@@ -1210,9 +1236,97 @@ export class Tallyfy implements INodeType {
 					show: {
 						resource: ['formField'],
 						operation: ['updateValue'],
+						fieldType: ['text', 'textarea', 'email', 'date', 'radio'],
 					},
 				},
-				description: 'The value to set for the form field',
+				description: 'The value to set. For Radio Buttons this is the chosen option\'s text exactly as defined on the field: radio takes bare text, unlike Dropdown which takes an ID and text pair.',
+			},
+			{
+				displayName: 'Option ID',
+				name: 'dropdownOptionId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateValue'],
+						fieldType: ['dropdown'],
+					},
+				},
+				description: 'The ID of the chosen option, taken from the field\'s options list. A whole-number ID is sent as a number so the stored value keeps the option\'s own type.',
+			},
+			{
+				displayName: 'Option Text',
+				name: 'dropdownOptionText',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateValue'],
+						fieldType: ['dropdown'],
+					},
+				},
+				description: 'The text of the chosen option. It must match the option definition exactly, or the API rejects the call with "Invalid dropdown choice selected".',
+			},
+			{
+				displayName: 'Value (JSON)',
+				name: 'fieldValueJson',
+				type: 'json',
+				default: '[]',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateValue'],
+						fieldType: ['multiselect', 'table', 'file'],
+					},
+				},
+				description: 'Multi-Select: an array of chosen options, each carrying the option ID and the option text exactly as defined on the field, plus a selected flag set true per item when the field requires every choice to be checked. Table: an array of rows whose length equals the field\'s column count. File: the file payload object.',
+			},
+			{
+				displayName: 'Assignee Users',
+				name: 'assigneesUsers',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateValue'],
+						fieldType: ['assignees_form'],
+					},
+				},
+				description: 'Comma-separated member IDs',
+			},
+			{
+				displayName: 'Assignee Guests',
+				name: 'assigneesGuests',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateValue'],
+						fieldType: ['assignees_form'],
+					},
+				},
+				description: 'Comma-separated guest emails',
+			},
+			{
+				displayName: 'Assignee Groups',
+				name: 'assigneesGroups',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['formField'],
+						operation: ['updateValue'],
+						fieldType: ['assignees_form'],
+					},
+				},
+				description: 'Comma-separated group IDs',
 			},
 			{
 				displayName: 'As Guest',
@@ -2469,6 +2583,19 @@ export class Tallyfy implements INodeType {
 			return (value as IDataObject) || {};
 		};
 
+		// Same coercion for JSON parameters whose value is a LIST (multiselect options,
+		// table rows). asObject() would turn those into an object, so keep arrays as arrays.
+		const asJsonValue = (value: unknown): IDataObject | IDataObject[] => {
+			if (typeof value === 'string') {
+				return value.trim() ? (JSON.parse(value) as IDataObject | IDataObject[]) : [];
+			}
+			return (value as IDataObject | IDataObject[]) ?? [];
+		};
+
+		// Comma-separated node input -> trimmed list, matching the assignee inputs elsewhere.
+		const splitList = (value: string): string[] =>
+			value.split(',').map(entry => entry.trim()).filter(Boolean);
+
 		// Small request helper used by the read-modify-write operations (kickoff fields,
 		// dropdown options, folder membership for templates) that need more than one call.
 		const doRequest = async (
@@ -2874,10 +3001,16 @@ export class Tallyfy implements INodeType {
 						method = 'GET';
 					}
 					
+					// Set a form field's value. `form_value` is TYPE-DEPENDENT: the API validates it
+					// against the capture's field_type (FormValuesValidator) and rejects the wrong
+					// shape, so a bare string only works for the scalar types. Dropdown and radio are
+					// asymmetric by design: dropdown takes an {id, text} pair, radio takes bare text.
 					if (operation === 'updateValue') {
 						const asGuest = this.getNodeParameter('asGuest', i) as boolean;
 						const formFieldId = this.getNodeParameter('formFieldId', i) as string;
-						const fieldValue = this.getNodeParameter('fieldValue', i) as string;
+						// Defaults to 'text' so workflows saved before this parameter existed keep
+						// sending the bare scalar they sent before.
+						const fieldType = this.getNodeParameter('fieldType', i, 'text') as string;
 						
 						if (asGuest) {
 							const guestEmail = this.getNodeParameter('guestEmail', i) as string;
@@ -2889,7 +3022,34 @@ export class Tallyfy implements INodeType {
 						}
 						
 						body.id = formFieldId;
-						body.form_value = fieldValue;
+						
+						if (fieldType === 'dropdown') {
+							// Both keys are required and the text must equal the option definition's text.
+							const optionId = (this.getNodeParameter('dropdownOptionId', i, '') as string).trim();
+							body.form_value = {
+								// Options written through this node are numbered ({ id: index + 1 }), so send a
+								// whole-number id back as a number and leave any other id as the string given.
+								id: /^\d+$/.test(optionId) ? Number(optionId) : optionId,
+								text: this.getNodeParameter('dropdownOptionText', i, '') as string,
+							};
+						} else if (fieldType === 'multiselect' || fieldType === 'table' || fieldType === 'file') {
+							// multiselect: [{id, text}, ...]; table: one entry per column; file: payload object.
+							body.form_value = asJsonValue(this.getNodeParameter('fieldValueJson', i, '[]'));
+						} else if (fieldType === 'assignees_form') {
+							// {users: [member ids], guests: [emails], groups: [group ids]}. Ids stay strings:
+							// the org_group rule requires strings and org_user accepts numeric strings.
+							const assignees: IDataObject = {};
+							const users = this.getNodeParameter('assigneesUsers', i, '') as string;
+							const guests = this.getNodeParameter('assigneesGuests', i, '') as string;
+							const groups = this.getNodeParameter('assigneesGroups', i, '') as string;
+							if (users) assignees.users = splitList(users);
+							if (guests) assignees.guests = splitList(guests);
+							if (groups) assignees.groups = splitList(groups);
+							body.form_value = assignees;
+						} else {
+							// text / textarea / email / date / radio all take a bare scalar.
+							body.form_value = this.getNodeParameter('fieldValue', i, '') as string;
+						}
 					}
 
 					// Add a form field (capture) to a template step.
