@@ -132,7 +132,7 @@ export class TallyfyTrigger implements INodeType {
 					{
 						name: 'Instant (Webhook)',
 						value: 'webhook',
-						description: 'Tallyfy pushes events to n8n in real time. Requires organization admin to subscribe.',
+						description: 'Tallyfy pushes events to n8n in real time. Requires an organization admin to subscribe and the Tallyfy organization-webhook backend to be enabled.',
 					},
 					{
 						name: 'Polling',
@@ -140,8 +140,8 @@ export class TallyfyTrigger implements INodeType {
 						description: 'Poll Tallyfy periodically for new items. Works for non-admins and without a public URL.',
 					},
 				],
-				default: 'webhook',
-				description: 'How this trigger receives Tallyfy events. Instant webhooks need an org admin token; polling is the fallback.',
+				default: 'polling',
+				description: 'How this trigger receives Tallyfy events. Polling works everywhere today. Instant webhooks deliver in real time but need an org-admin token AND the Tallyfy organization-webhook backend (rolling out). Switch to Instant once your organization has it enabled.',
 			},
 
 			// ===== INSTANT WEBHOOK MODE =====

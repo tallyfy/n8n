@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-tallyfy",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Complete n8n integration for Tallyfy with 60+ operations across blueprints, processes, tasks, forms, comments, users, groups, and search. See https://tallyfy.com/products/pro/integrations/middleware/n8n/ for complete documentation.",
   "keywords": [
     "n8n",
