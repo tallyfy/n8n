@@ -2517,9 +2517,17 @@ export class Tallyfy implements INodeType {
 								name: 'Draft',
 								value: 'draft',
 							},
+							{
+								// Process (run) status for a process blocked by an open process-level
+								// issue (api-v2#5110 / PR #9466). The server folds `issue` runs into the
+								// `problem` filter. Accepted (HTTP 200) by the other resource list
+								// endpoints too, so it is harmless on this shared filter. See tallyfy/n8n#1.
+								name: 'Issue',
+								value: 'issue',
+							},
 						],
 						default: 'active',
-						description: 'Filter by status',
+						description: 'Filter by status. Note: "Issue" applies to processes (runs) blocked by an open process-level issue.',
 					},
 					{
 						displayName: 'Tags',
