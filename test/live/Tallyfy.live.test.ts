@@ -218,6 +218,130 @@ d('Tallyfy live API', () => {
 		});
 	});
 
+	describe('Process launch with kickoff (prerun) values (issue #6)', () => {
+		let bpId: string;
+		const fields: Record<string, IDataObject> = {};
+
+		beforeAll(async () => {
+			const created = await rawApi('POST', `/organizations/${TEST_ORG}/checklists`, {
+				title: uniq('ko-bp'),
+				type: 'procedure',
+			});
+			const bp = data(created) as IDataObject;
+			bpId = bp.id as string;
+			// Add one kickoff field per choice/scalar type. The PUT echoes each field's id/alias.
+			const put = await rawApi('PUT', `/organizations/${TEST_ORG}/checklists/${bpId}`, {
+				title: bp.title,
+				prerun: [
+					{ label: 'Cust Name', field_type: 'text', required: false, position: 1 },
+					{
+						label: 'Plan',
+						field_type: 'dropdown',
+						required: false,
+						position: 2,
+						options: [
+							{ id: 1, text: 'Silver' },
+							{ id: 2, text: 'Gold' },
+						],
+					},
+					{
+						label: 'Addons',
+						field_type: 'multiselect',
+						required: false,
+						position: 3,
+						options: [
+							{ id: 1, text: 'SSO' },
+							{ id: 2, text: 'Audit' },
+							{ id: 3, text: 'SLA' },
+						],
+					},
+					{
+						label: 'Tier',
+						field_type: 'radio',
+						required: false,
+						position: 4,
+						options: [
+							{ id: 1, text: 'Free' },
+							{ id: 2, text: 'Paid' },
+						],
+					},
+				],
+			});
+			for (const f of (data(put) as IDataObject).prerun as IDataObject[]) {
+				fields[f.field_type as string] = f;
+			}
+		});
+
+		afterAll(async () => {
+			if (bpId) await rawApi('DELETE', `/organizations/${TEST_ORG}/checklists/${bpId}`).catch(() => undefined);
+		});
+
+		it('launches with kickoff values and the API STORES the correct per-type shapes', async () => {
+			const launched = await runLive({
+				resource: 'process',
+				operation: 'launch',
+				blueprintId: bpId,
+				processName: uniq('ko-run'),
+				kickoffValues: {
+					values: [
+						{ field: 'Cust Name', value: 'Acme Inc' }, // by label -> scalar
+						{ field: fields.dropdown.alias, value: 'Gold' }, // by alias -> {id,text}
+						{ field: fields.multiselect.id, value: 'SSO, SLA' }, // by id -> list
+						{ field: 'Tier', value: 'Paid' }, // by label -> radio bare text
+					],
+				},
+				additionalFields: {},
+			});
+
+			// 1) The node built the prerun object keyed by field id with per-type encoding.
+			const sentPrerun = (
+				launched.captured[launched.captured.length - 1].options.body as IDataObject
+			).prerun as IDataObject;
+			expect(sentPrerun[fields.dropdown.id as string]).toEqual({ id: 2, text: 'Gold' });
+			expect(sentPrerun[fields.multiselect.id as string]).toEqual([
+				{ id: 1, text: 'SSO', selected: true },
+				{ id: 3, text: 'SLA', selected: true },
+			]);
+			expect(sentPrerun[fields.radio.id as string]).toBe('Paid');
+			expect(sentPrerun[fields.text.id as string]).toBe('Acme Inc');
+
+			const runId = (data(launched.out[0].json) as IDataObject).id as string;
+			expect(runId).toBeTruthy();
+
+			// 2) The API actually STORED them (read back; guards against the silent-201 trap where a
+			//    wrong-keyed launch returns 201 with nothing stored).
+			const stored = (
+				data(
+					await rawApi('GET', `/organizations/${TEST_ORG}/runs/${runId}`, undefined, {
+						with: 'prerun',
+					}),
+				) as IDataObject
+			).prerun as IDataObject;
+			expect(stored[fields.dropdown.id as string]).toEqual({ id: 2, text: 'Gold' });
+			expect(stored[fields.multiselect.id as string]).toEqual([
+				{ id: 1, text: 'SSO', selected: true },
+				{ id: 3, text: 'SLA', selected: true },
+			]);
+			expect(stored[fields.radio.id as string]).toBe('Paid');
+			expect(stored[fields.text.id as string]).toBe('Acme Inc');
+
+			await rawApi('DELETE', `/organizations/${TEST_ORG}/runs/${runId}`).catch(() => undefined);
+		});
+
+		it('fails loudly when an entry matches no kickoff field (not a silent 201)', async () => {
+			await expect(
+				runLive({
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: bpId,
+					processName: uniq('ko-bad'),
+					kickoffValues: { values: [{ field: 'no-such-field', value: 'x' }] },
+					additionalFields: {},
+				}),
+			).rejects.toThrow(/not found on template/);
+		});
+	});
+
 	describe('Task (one-off) CRUD + complete', () => {
 		it('creates, reads, updates, completes and deletes a one-off task', async () => {
 			const creds = loadCreds();
