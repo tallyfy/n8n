@@ -40,6 +40,139 @@ describe('Tallyfy node - request building', () => {
 		});
 	});
 
+	describe('Process: Launch with kickoff (prerun) values', () => {
+		// The template GET (with=prerun) returns the field defs the node resolves against.
+		const templateResp = {
+			data: {
+				prerun: [
+					{ id: 'F_TEXT', alias: 'cust-name', label: 'Cust Name', field_type: 'text' },
+					{
+						id: 'F_DD',
+						alias: 'plan',
+						label: 'Plan',
+						field_type: 'dropdown',
+						options: [
+							{ id: 1, text: 'Silver' },
+							{ id: 2, text: 'Gold' },
+						],
+					},
+					{
+						id: 'F_MS',
+						alias: 'addons',
+						label: 'Addons',
+						field_type: 'multiselect',
+						options: [
+							{ id: 1, text: 'SSO' },
+							{ id: 2, text: 'Audit' },
+							{ id: 3, text: 'SLA' },
+						],
+					},
+					{
+						id: 'F_RD',
+						alias: 'tier',
+						label: 'Tier',
+						field_type: 'radio',
+						options: [
+							{ id: 1, text: 'Free' },
+							{ id: 2, text: 'Paid' },
+						],
+					},
+				],
+			},
+		};
+
+		it('resolves each entry (by label/alias/id) and encodes prerun keyed by field id', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Kickoff run',
+					kickoffValues: {
+						values: [
+							{ field: 'Cust Name', value: 'Acme Inc' }, // by label -> scalar
+							{ field: 'plan', value: 'Gold' }, // by alias -> dropdown {id,text}
+							{ field: 'F_MS', value: 'SSO, SLA' }, // by id -> multiselect list
+							{ field: 'Tier', value: 'Paid' }, // radio -> bare text
+						],
+					},
+					additionalFields: {},
+				},
+				[templateResp, { data: { id: 'RUN1' } }],
+			);
+
+			// First call fetches the template kickoff fields...
+			const tmplReq = requestAt(httpMock, 0);
+			expect(tmplReq.method).toBe('GET');
+			expect(tmplReq.url).toBe(`${BASE}/organizations/${ORG}/checklists/BP1`);
+			expect(tmplReq.qs).toEqual({ with: 'prerun' });
+
+			// ...then the launch POST carries the encoded prerun keyed by field id.
+			const launchReq = requestAt(httpMock, 1);
+			expect(launchReq.method).toBe('POST');
+			expect(launchReq.url).toBe(`${BASE}/organizations/${ORG}/runs`);
+			expect(launchReq.body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Kickoff run',
+				prerun: {
+					F_TEXT: 'Acme Inc',
+					F_DD: { id: 2, text: 'Gold' },
+					F_MS: [
+						{ id: 1, text: 'SSO', selected: true },
+						{ id: 3, text: 'SLA', selected: true },
+					],
+					F_RD: 'Paid',
+				},
+			});
+		});
+
+		it('does NOT fetch the template or send prerun when no kickoff values are given', async () => {
+			const { httpMock } = await run({
+				resource: 'process',
+				operation: 'launch',
+				blueprintId: 'BP1',
+				processName: 'Plain run',
+				kickoffValues: {},
+				additionalFields: {},
+			});
+			// Exactly one call (the launch); no template pre-fetch, no prerun key.
+			expect(httpMock).toHaveBeenCalledTimes(1);
+			expect(requestAt(httpMock, 0).body).toEqual({ checklist_id: 'BP1', name: 'Plain run' });
+		});
+
+		it('fails loudly when an entry matches no kickoff field', async () => {
+			await expect(
+				run(
+					{
+						resource: 'process',
+						operation: 'launch',
+						blueprintId: 'BP1',
+						processName: 'Bad field',
+						kickoffValues: { values: [{ field: 'does-not-exist', value: 'x' }] },
+						additionalFields: {},
+					},
+					[templateResp],
+				),
+			).rejects.toThrow(/not found on template/);
+		});
+
+		it('fails loudly when a dropdown option text does not match', async () => {
+			await expect(
+				run(
+					{
+						resource: 'process',
+						operation: 'launch',
+						blueprintId: 'BP1',
+						processName: 'Bad option',
+						kickoffValues: { values: [{ field: 'Plan', value: 'Platinum' }] },
+						additionalFields: {},
+					},
+					[templateResp],
+				),
+			).rejects.toThrow(/no dropdown option matches/);
+		});
+	});
+
 	describe('Task: Complete', () => {
 		it('POSTs to org-scoped /completed-tasks with task_id for a one-off task', async () => {
 			const { httpMock } = await run({
@@ -379,5 +512,28 @@ describe('Tallyfy node - request building', () => {
 			expect(httpMock).toHaveBeenCalledTimes(1);
 			expect(result[0][0].json).toEqual({ error: 'boom' });
 		});
+	});
+});
+
+describe('Tallyfy node - property definitions', () => {
+	// Regression lock for tallyfy/n8n#1: the status filter must offer the process "issue" status
+	// (api-v2#5110 / #9466). This is a static description assertion - no credentials or network, so
+	// it does NOT depend on an issue-status process existing (that backend is not in production yet).
+	it('exposes an "issue" option on the status filter without dropping the existing ones', () => {
+		const properties = new Tallyfy().description.properties;
+		const filters = properties.find((p) => p.name === 'filters') as
+			| { options?: Array<{ name: string; options?: Array<{ value: string }> }> }
+			| undefined;
+		expect(filters).toBeDefined();
+
+		const statusOption = (filters!.options || []).find((o) => o.name === 'status');
+		expect(statusOption).toBeDefined();
+
+		const values = (statusOption!.options || []).map((o) => o.value);
+		expect(values).toContain('issue');
+		// The pre-existing presets must remain (guards against an accidental removal).
+		expect(values).toEqual(
+			expect.arrayContaining(['active', 'completed', 'archived', 'draft', 'issue']),
+		);
 	});
 });

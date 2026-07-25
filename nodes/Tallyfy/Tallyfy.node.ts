@@ -856,6 +856,48 @@ export class Tallyfy implements INodeType {
 				},
 				description: 'Name for the new process instance',
 			},
+			{
+				displayName: 'Kickoff Field Values',
+				name: 'kickoffValues',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				default: {},
+				placeholder: 'Add Kickoff Value',
+				displayOptions: {
+					show: {
+						resource: ['process'],
+						operation: ['launch'],
+					},
+				},
+				description:
+					'Values for the blueprint kickoff (prerun) form fields, sent when launching. Each entry is resolved against the template kickoff fields and encoded by field type; an entry matching no field fails the execution instead of being silently dropped. Use the "Get kickoff fields" operation to list a template fields.',
+				options: [
+					{
+						displayName: 'Value',
+						name: 'values',
+						values: [
+							{
+								displayName: 'Field',
+								name: 'field',
+								type: 'string',
+								default: '',
+								description:
+									'The kickoff field to set, by its ID, alias or exact label',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description:
+									'For dropdown or radio, the option text (exact match). For multiselect, comma-separated option texts. For text, date or number, the value as-is.',
+							},
+						],
+					},
+				],
+			},
 
 			// ===== TASK FIELDS =====
 			{
@@ -2517,9 +2559,17 @@ export class Tallyfy implements INodeType {
 								name: 'Draft',
 								value: 'draft',
 							},
+							{
+								// Process (run) status for a process blocked by an open process-level
+								// issue (api-v2#5110 / PR #9466). The server folds `issue` runs into the
+								// `problem` filter. Accepted (HTTP 200) by the other resource list
+								// endpoints too, so it is harmless on this shared filter. See tallyfy/n8n#1.
+								name: 'Issue',
+								value: 'issue',
+							},
 						],
 						default: 'active',
-						description: 'Filter by status',
+						description: 'Filter by status. Note: "Issue" applies to processes (runs) blocked by an open process-level issue.',
 					},
 					{
 						displayName: 'Tags',
@@ -2595,6 +2645,37 @@ export class Tallyfy implements INodeType {
 		// Comma-separated node input -> trimmed list, matching the assignee inputs elsewhere.
 		const splitList = (value: string): string[] =>
 			value.split(',').map(entry => entry.trim()).filter(Boolean);
+
+		// Encode a Kick-off (prerun) value for the launch `prerun` object, per the field's type.
+		// Mirrors middleware lib/tallyfy.js processFieldValue: choice fields resolve the option by
+		// its TEXT and send the structured shape the API stores; scalars pass through. The API
+		// stores dropdown as {id,text}, multiselect as [{id,text,selected:true}] and radio/text as
+		// a bare scalar - proven by a create -> GET /runs/{id}?with=prerun round-trip on staging.
+		const encodeKickoffValue = (field: IDataObject, rawValue: unknown): unknown => {
+			const fieldType = field.field_type as string;
+			const options = (field.options as IDataObject[]) || [];
+			const label = (field.label as string) || (field.id as string);
+			if (fieldType === 'dropdown') {
+				const text = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+				const opt = options.find(o => o.text === text);
+				if (!opt) {
+					throw new Error(`Kickoff field "${label}": no dropdown option matches "${String(rawValue)}"`);
+				}
+				return { id: opt.id, text: opt.text };
+			}
+			if (fieldType === 'multiselect') {
+				return splitList(String(rawValue ?? '')).map(text => {
+					const opt = options.find(o => o.text === text);
+					if (!opt) {
+						throw new Error(`Kickoff field "${label}": no multiselect option matches "${text}"`);
+					}
+					// The API only persists a selected option when `selected: true` is present.
+					return { id: opt.id, text: opt.text, selected: true };
+				});
+			}
+			// radio -> bare option text; text / textarea / email / date / number -> scalar as-is.
+			return rawValue;
+		};
 
 		// Small request helper used by the read-modify-write operations (kickoff fields,
 		// dropdown options, folder membership for templates) that need more than one call.
@@ -2711,10 +2792,44 @@ export class Tallyfy implements INodeType {
 					if (operation === 'launch') {
 						endpoint = `/organizations/${organizationId}/runs`;
 						method = 'POST';
-						
+
 						body.checklist_id = this.getNodeParameter('blueprintId', i) as string;
 						body.name = this.getNodeParameter('processName', i) as string;
-						
+
+						// Kick-off (prerun) values: resolve each entry against the template's kickoff
+						// fields and encode per type into a `prerun` object keyed by the field id (the
+						// key the API resolves - alias/timeline_id do NOT resolve and launch would
+						// silently 201 with no values stored). Matches middleware start_process.js.
+						const kickoffValues = this.getNodeParameter('kickoffValues', i, {}) as IDataObject;
+						const kickoffEntries = (kickoffValues.values as IDataObject[]) || [];
+						if (kickoffEntries.length) {
+							const tmpl = await doRequest(
+								'GET',
+								`/organizations/${organizationId}/checklists/${body.checklist_id}`,
+								undefined,
+								{ with: 'prerun' },
+							);
+							const tmplData = ((tmpl.data as IDataObject) || tmpl);
+							const kickoffFields = ((tmplData.prerun as IDataObject[]) || []);
+							const prerun: IDataObject = {};
+							for (const entry of kickoffEntries) {
+								const key = String(entry.field ?? '').trim();
+								const field = kickoffFields.find(
+									f => f.id === key || f.alias === key || f.label === key,
+								);
+								if (!field) {
+									throw new Error(
+										`Kickoff field "${key}" not found on template ${body.checklist_id}. Use the "Get kickoff fields" operation to list valid fields.`,
+									);
+								}
+								prerun[field.id as string] = encodeKickoffValue(field, entry.value) as
+									| IDataObject
+									| IDataObject[]
+									| string;
+							}
+							body.prerun = prerun;
+						}
+
 						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 						Object.assign(body, additionalFields);
 					}

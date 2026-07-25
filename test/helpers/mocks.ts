@@ -35,6 +35,14 @@ export interface ContextMockConfig {
 	 * When exhausted the last entry is reused.
 	 */
 	httpResponses?: unknown[];
+	/**
+	 * When provided, httpRequestWithAuthentication DELEGATES to this real implementation
+	 * (still snapshotting args onto `.captured`) instead of returning canned `httpResponses`.
+	 * The live integration suite wires this to a real `fetch` against staging so the node's
+	 * actual request-building and response-handling run end to end. Leave unset for the
+	 * mocked unit tests.
+	 */
+	httpImpl?: (credentialName: string, options: IHttpRequestOptions) => Promise<unknown>;
 	continueOnFail?: boolean;
 	/**
 	 * Trigger-family contexts (IPollFunctions/IHookFunctions/IWebhookFunctions) drop the itemIndex
@@ -80,6 +88,10 @@ export function createContextMock(config: ContextMockConfig = {}): ContextMock {
 	const httpMock = jest.fn(async (credentialName: string, options: IHttpRequestOptions) => {
 		// Snapshot args at call time (the node mutates the shared options object between calls).
 		captured.push({ credentialName, options: structuredClone(options) });
+		// Live integration path: perform the real request the node just built.
+		if (config.httpImpl) {
+			return await config.httpImpl(credentialName, options);
+		}
 		const response = responses[Math.min(callIdx, responses.length - 1)] as
 			| { __throw?: unknown }
 			| undefined;
