@@ -44,6 +44,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Runs the mocked unit suite only: the live integration suite is gated behind
+      # TALLYFY_LIVE=1 (unset here), so no staging credentials or network are needed.
+      - name: Test
+        run: npm test
+
       - name: Verify tag matches package.json version
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"
