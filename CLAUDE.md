@@ -4,7 +4,9 @@
 
 ## Overview
 
-Custom n8n community node package providing 60+ Tallyfy API tools for workflow automation.
+Custom n8n community node package providing 96 Tallyfy API operations across 12 resources plus a
+Trigger node, for workflow automation. Published on npm as `n8n-nodes-tallyfy` **v1.1.1** (npm latest
+since 2026-07-26; installed via `npm install n8n-nodes-tallyfy`).
 
 ## Development (modernized 2026-07 — tallyfy/n8n#4)
 
