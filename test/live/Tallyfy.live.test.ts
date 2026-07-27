@@ -558,6 +558,77 @@ d('Tallyfy live API', () => {
 		});
 	});
 
+	// Issue #9: run-level formField:updateValue. The node builds the correct request (asserted per
+	// field type in the mocked suite), but api-v2 rejects it server-side. This exercises the run-level
+	// path end to end against staging and pins the CURRENT api-v2 behavior as a tripwire.
+	describe('Form Field: run-level updateValue precondition (issue #9)', () => {
+		let bpId: string;
+		let runId: string;
+		let runFieldId: string;
+
+		beforeAll(async () => {
+			const bp = await rawApi('POST', `/organizations/${TEST_ORG}/checklists`, {
+				title: uniq('rfv-bp'),
+				type: 'procedure',
+			});
+			bpId = (data(bp) as IDataObject).id as string;
+			const stepId = await createStep(bpId, uniq('rfv-step'));
+			await rawApi('POST', `/organizations/${TEST_ORG}/checklists/${bpId}/steps/${stepId}/captures`, {
+				label: 'Notes',
+				field_type: 'text',
+				required: false,
+			});
+			const run = await rawApi('POST', `/organizations/${TEST_ORG}/runs`, {
+				checklist_id: bpId,
+				name: uniq('rfv-run'),
+			});
+			runId = (data(run) as IDataObject).id as string;
+			// Assign the sole task to self so the failure is the field-value precondition, not authz
+			// (issue #9 reproduces "even after the task is assigned").
+			const creds = loadCreds();
+			const tasks = data<IDataObject[]>(
+				await rawApi('GET', `/organizations/${TEST_ORG}/runs/${runId}/tasks`),
+			) as IDataObject[];
+			if (tasks[0]) {
+				await rawApi('PUT', `/organizations/${TEST_ORG}/runs/${runId}/tasks/${tasks[0].id}`, {
+					owners: { users: [Number(creds.userId)], guests: [], groups: [] },
+				}).catch(() => undefined);
+			}
+			// The run's form-fields expose each capture (field-definition id); this is the only id a
+			// workflow can obtain for a never-filled run-level field.
+			const rff = data(
+				await rawApi('GET', `/organizations/${TEST_ORG}/runs/${runId}/form-fields`),
+			) as IDataObject;
+			runFieldId = ((rff.form_fields as IDataObject[]) || [])[0].id as string;
+		});
+
+		afterAll(async () => {
+			if (runId) await rawApi('DELETE', `/organizations/${TEST_ORG}/runs/${runId}`).catch(() => undefined);
+			if (bpId) await rawApi('DELETE', `/organizations/${TEST_ORG}/checklists/${bpId}`).catch(() => undefined);
+		});
+
+		// TRIPWIRE: api-v2 UpdateFormFieldValueRequest::postValidate() runs
+		// `CaptureValue::find($id)->capture` with no null-guard, and FormFieldService::updateValue()
+		// has no create-if-missing, so a run-level field with no stored CaptureValue yet returns
+		// HTTP 500 "Attempt to read property `capture` on null". This asserts that CURRENT behavior.
+		// When api-v2 #9 ships (null-guard + create-or-update, mirroring the guest storeOrUpdateFields
+		// path) this call will SUCCEED and this test will go RED - flip it then to a stored-value
+		// round-trip: read back GET /runs/{runId}/form-fields and assert the value persisted.
+		it('run-level updateValue is rejected by the current api-v2 precondition (api-v2 #9 tripwire)', async () => {
+			expect(runFieldId).toBeTruthy();
+			await expect(
+				runLive({
+					resource: 'formField',
+					operation: 'updateValue',
+					asGuest: false,
+					formFieldId: runFieldId,
+					fieldType: 'text',
+					fieldValue: `${PREFIX}-rfv-value`,
+				}),
+			).rejects.toThrow(/capture/i);
+		});
+	});
+
 	describe('Group CRUD', () => {
 		it('creates, reads, updates and deletes a group', async () => {
 			const name = uniq('grp');

@@ -1240,7 +1240,7 @@ export class Tallyfy implements INodeType {
 						operation: ['updateValue'],
 					},
 				},
-				description: 'The ID of the form field (CaptureValue ID)',
+				description: 'The ID of the STORED form-field value (CaptureValue ID) to update, NOT the field-definition ID. A run-level field only gains a CaptureValue once a value has been stored on it, so updating a never-filled run-level field currently fails server-side (api-v2 #9: PUT /form-field/value resolves the value by CaptureValue ID with no null-guard and no create-if-missing). For launch-time Kick-off values use the process:launch Kick-off Values collection instead.',
 			},
 			{
 				displayName: 'Field Type',
@@ -3120,6 +3120,16 @@ export class Tallyfy implements INodeType {
 					// against the capture's field_type (FormValuesValidator) and rejects the wrong
 					// shape, so a bare string only works for the scalar types. Dropdown and radio are
 					// asymmetric by design: dropdown takes an {id, text} pair, radio takes bare text.
+					//
+					// PRECONDITION (issue #9): `formFieldId` is the CaptureValue ID of an EXISTING
+					// stored value. The member endpoint (PUT /form-field/value) resolves it via
+					// `CaptureValue::find($id)` in api-v2 UpdateFormFieldValueRequest::postValidate()
+					// (then reads `$capture->capture`) and in FormFieldService::updateValue() with no
+					// null-guard and no create-if-missing, so setting a value on a run-level field that
+					// has no CaptureValue yet returns HTTP 500 "Attempt to read property `capture` on
+					// null". The request shape this node builds is correct; the run-level fix belongs in
+					// api-v2 (mirror the guest path's storeOrUpdateFields create-or-update). Tracked by a
+					// live tripwire in test/live/Tallyfy.live.test.ts.
 					if (operation === 'updateValue') {
 						const asGuest = this.getNodeParameter('asGuest', i) as boolean;
 						const formFieldId = this.getNodeParameter('formFieldId', i) as string;
