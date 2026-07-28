@@ -8,6 +8,13 @@ Custom n8n community node package providing 96 Tallyfy API operations across 12 
 Trigger node, for workflow automation. Published on npm as `n8n-nodes-tallyfy` **v1.1.1** (npm latest
 since 2026-07-26; installed via `npm install n8n-nodes-tallyfy`).
 
+> **Unreleased on `main`** (2026-07-28): commit `47c0225` adds the middleware **#178** lenient kick-off
+> choice match - `encodeKickoffValue` matches a dropdown/multi-select template option even when the
+> value differs only by letter case or surrounding whitespace, then sends the option's own canonical
+> text (a `canonicalChoiceEq` fallback before the fail-loud throw; parity with Zapier/Workato/Celigo/CLI/MCP).
+> NOT yet published. The next npm publish must bump `package.json` to 1.1.2 first, then
+> `npm publish --otp=XXXXXX` (2FA). Gates green: tsc build, eslint (0 errors), jest 46 passing.
+
 ## Development (modernized 2026-07 — tallyfy/n8n#4)
 
 - **Toolchain**: `n8n-workflow` ^2.16.0 (dev + peer), `engines.node` >=20.15, ESLint 8 + `@typescript-eslint` 8 + `eslint-plugin-n8n-nodes-base` 1.16.7 (+ `jsonc-eslint-parser` for linting package.json). `npm run build` (tsc + gulp icons) and `npm run lint` are both green.
