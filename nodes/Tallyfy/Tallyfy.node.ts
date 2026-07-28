@@ -2646,6 +2646,13 @@ export class Tallyfy implements INodeType {
 		const splitList = (value: string): string[] =>
 			value.split(',').map(entry => entry.trim()).filter(Boolean);
 
+		// Lenient choice equality (#178): match a template option when the caller's value differs
+		// only by letter case or surrounding whitespace. Mirrors middleware lib/tallyfy.js
+		// canonicalChoiceEq and the Tallyfy CLI / MCP server; the caller then sends the option's
+		// own canonical text, never the raw input.
+		const canonicalChoiceEq = (optionText: unknown, rawValue: unknown): boolean =>
+			String(optionText ?? '').trim().toLowerCase() === String(rawValue ?? '').trim().toLowerCase();
+
 		// Encode a Kick-off (prerun) value for the launch `prerun` object, per the field's type.
 		// Mirrors middleware lib/tallyfy.js processFieldValue: choice fields resolve the option by
 		// its TEXT and send the structured shape the API stores; scalars pass through. The API
@@ -2657,7 +2664,12 @@ export class Tallyfy implements INodeType {
 			const label = (field.label as string) || (field.id as string);
 			if (fieldType === 'dropdown') {
 				const text = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
-				const opt = options.find(o => o.text === text);
+				// Exact match first, then a lenient case-insensitive + trimmed fallback (#178);
+				// either way the option's own canonical text is sent, never the raw input.
+				let opt = options.find(o => o.text === text);
+				if (!opt) {
+					opt = options.find(o => canonicalChoiceEq(o.text, rawValue));
+				}
 				if (!opt) {
 					throw new Error(`Kickoff field "${label}": no dropdown option matches "${String(rawValue)}"`);
 				}
@@ -2665,7 +2677,11 @@ export class Tallyfy implements INodeType {
 			}
 			if (fieldType === 'multiselect') {
 				return splitList(String(rawValue ?? '')).map(text => {
-					const opt = options.find(o => o.text === text);
+					// Exact match first, then the same lenient case-insensitive + trimmed fallback (#178).
+					let opt = options.find(o => o.text === text);
+					if (!opt) {
+						opt = options.find(o => canonicalChoiceEq(o.text, text));
+					}
 					if (!opt) {
 						throw new Error(`Kickoff field "${label}": no multiselect option matches "${text}"`);
 					}

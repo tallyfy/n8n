@@ -171,6 +171,39 @@ describe('Tallyfy node - request building', () => {
 				),
 			).rejects.toThrow(/no dropdown option matches/);
 		});
+
+		it('matches a dropdown or multiselect option differing only by case or whitespace (#178) and sends the canonical text', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Lenient kickoff',
+					kickoffValues: {
+						values: [
+							{ field: 'plan', value: 'gold' }, // case-only diff -> canonical 'Gold'
+							{ field: 'addons', value: ' sso ,SLA' }, // whitespace + case -> canonical 'SSO','SLA'
+						],
+					},
+					additionalFields: {},
+				},
+				[templateResp, { data: { id: 'RUN2' } }],
+			);
+
+			// The launch POST carries each option's OWN canonical text, never the raw input.
+			const launchReq = requestAt(httpMock, 1);
+			expect(launchReq.body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Lenient kickoff',
+				prerun: {
+					F_DD: { id: 2, text: 'Gold' },
+					F_MS: [
+						{ id: 1, text: 'SSO', selected: true },
+						{ id: 3, text: 'SLA', selected: true },
+					],
+				},
+			});
+		});
 	});
 
 	describe('Task: Complete', () => {
