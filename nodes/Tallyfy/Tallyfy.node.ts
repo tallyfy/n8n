@@ -38,6 +38,16 @@ import type {
  *      `response.data`, NOT `response.body`. `body` is the legacy
  *      `this.helpers.request` convention, which this node does not use.
  *
+ * KNOWN LIMIT, do not try to fix it by adding candidates. If axios hands back
+ * `response.data` as a STRING rather than a parsed object, NodeApiError drops
+ * it: measured, the envelope then survives nowhere on the error, `context.data`
+ * is undefined and `description` falls back to "Request failed with status
+ * code 409". Nothing downstream can recover data that was never attached. This
+ * does not arise from api-v2 itself, which returns a JsonResponse and so always
+ * carries an application/json content-type for axios to parse; it would take an
+ * intermediary rewriting the content-type, and in that case the envelope is
+ * already lost before this node sees it.
+ *
  * Returns a readable message, or undefined for anything that is not this error
  * (every other failure keeps n8n's own handling untouched).
  */
