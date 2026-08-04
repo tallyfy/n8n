@@ -1,8 +1,18 @@
 import type { INodeExecutionData } from 'n8n-workflow';
+import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 import { Tallyfy, seatPoolExhaustedMessage } from '../../nodes/Tallyfy/Tallyfy.node';
 import { createContextMock, requestAt, credentialAt } from '../helpers/mocks';
 
 const BASE = 'https://go.tallyfy.com/api';
+/** Mirrors the node identity createContextMock hands back from getNode(). */
+const NODE = {
+	id: 'test-node',
+	name: 'Tallyfy',
+	type: 'n8n-nodes-tallyfy.tallyfy',
+	typeVersion: 1,
+	position: [0, 0] as [number, number],
+	parameters: {},
+};
 const ORG = 'ORG123';
 
 /** Run the node's execute() with the given params and captured HTTP responses. */
@@ -548,9 +558,12 @@ describe('Tallyfy node - request building', () => {
 	});
 
 	// api-v2 #9206 refuses a seat-consuming action with 409 + a NESTED envelope.
-	// Three operations here can hit it: User > Invite / Change Role / Enable.
-	// Without the rewrite the operator sees only "409 - Conflict", losing both
-	// the reason and pool_type (which decides light vs full seats to buy).
+	// Three operations here can hit it: User > Invite / Update Role / Enable.
+	//
+	// These tests build a REAL NodeApiError from a REAL axios-shaped error,
+	// because the first version of this suite invented its own error shape and
+	// every test passed against an implementation that never fired in
+	// production. A fake here is not a shortcut, it is the bug.
 	describe('Seat pool exhausted (api-v2 #9206)', () => {
 		const BODY = {
 			error: {
@@ -560,17 +573,26 @@ describe('Tallyfy node - request building', () => {
 			},
 		};
 
-		/** Shape n8n produces: a NodeApiError wrapping the transport error. */
-		function apiError(body: unknown): Error {
-			const inner = new Error('409 - Conflict') as Error & { response?: unknown };
-			inner.response = { body };
-			// `cause` is assigned, not passed to the constructor: that option is
-			// ES2022 and this package targets es2019 (see tsconfig.json).
-			const outer = new Error('The service was not able to process your request') as Error & {
-				cause?: unknown;
-			};
-			outer.cause = inner;
-			return outer;
+		/**
+		 * What the node actually catches. httpRequestWithAuthentication is
+		 * axios-backed and rethrows as `new NodeApiError(node, axiosError)`, so
+		 * the envelope arrives at `context.data` and axios' own copy sits at
+		 * `response.data`. NodeApiError resets `cause` to undefined via its bare
+		 * class field, so nothing is reachable by walking `cause`.
+		 */
+		function realApiError(body: unknown): Error {
+			const axiosError = Object.assign(new Error('Request failed with status code 409'), {
+				isAxiosError: true,
+				response: { status: 409, data: body },
+			});
+			return new NodeApiError(NODE, axiosError as never);
+		}
+
+		/** Legacy `this.helpers.request` shape, kept so both conventions stay covered. */
+		function legacyRequestError(body: unknown): Error {
+			const err = new Error('409 - Conflict') as Error & { response?: unknown };
+			err.response = { body };
+			return err;
 		}
 
 		const INVITE = {
@@ -583,29 +605,48 @@ describe('Tallyfy node - request building', () => {
 			message: 'Welcome aboard',
 		};
 
-		it('replaces the generic transport error with the reason and the pool type', async () => {
+		it('reads the envelope off the error n8n really throws', async () => {
 			const { ctx } = createContextMock({
 				params: INVITE,
-				httpResponses: [{ __throw: apiError(BODY) }],
+				httpResponses: [{ __throw: realApiError(BODY) }],
 			});
 			await expect(new Tallyfy().execute.call(ctx)).rejects.toThrow(
 				/committed full seat limit[\s\S]*No full seats are left/,
 			);
 		});
 
-		it('keeps the original error as the cause so nothing is lost', async () => {
-			const original = apiError(BODY);
+		it('also reads the legacy request-library shape', async () => {
 			const { ctx } = createContextMock({
 				params: INVITE,
-				httpResponses: [{ __throw: original }],
+				httpResponses: [{ __throw: legacyRequestError(BODY) }],
 			});
-			await expect(new Tallyfy().execute.call(ctx)).rejects.toHaveProperty('cause', original);
+			await expect(new Tallyfy().execute.call(ctx)).rejects.toThrow(/No full seats are left/);
+		});
+
+		it('throws a warning-level node error, not a plain Error that would page us', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: realApiError(BODY) }],
+			});
+			// workflow-execute reports a plain non-axios Error to Sentry. A seat cap
+			// is the customer's billing state, so it must never take that branch.
+			const thrown = await new Tallyfy()
+				.execute.call(ctx)
+				.then(() => undefined)
+				.catch((e: unknown) => e as Record<string, unknown>);
+
+			expect(thrown).toBeInstanceOf(NodeOperationError);
+			expect(thrown!.level).toBe('warning');
+			// This node loops over items, so per-item attribution has to survive.
+			expect((thrown!.context as Record<string, unknown>).itemIndex).toBe(0);
+			// Nothing is lost: the original envelope is still on the error.
+			expect(JSON.stringify(thrown!.context)).toContain('SEAT_POOL_EXHAUSTED');
 		});
 
 		it('uses the readable message on the continueOnFail path too', async () => {
 			const { ctx } = createContextMock({
 				params: INVITE,
-				httpResponses: [{ __throw: apiError(BODY) }],
+				httpResponses: [{ __throw: realApiError(BODY) }],
 				continueOnFail: true,
 			});
 			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
@@ -613,12 +654,10 @@ describe('Tallyfy node - request building', () => {
 		});
 
 		it('names the light pool when that is the one that is full', async () => {
-			const light = {
-				error: { ...BODY.error, details: { pool_type: 'light' } },
-			};
+			const light = { error: { ...BODY.error, details: { pool_type: 'light' } } };
 			const { ctx } = createContextMock({
 				params: INVITE,
-				httpResponses: [{ __throw: apiError(light) }],
+				httpResponses: [{ __throw: realApiError(light) }],
 				continueOnFail: true,
 			});
 			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
@@ -633,6 +672,18 @@ describe('Tallyfy node - request building', () => {
 			});
 			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
 			expect(result[0][0].json).toEqual({ error: 'boom' });
+		});
+
+		it('does not hijack an unrelated 409 from the same endpoint', async () => {
+			// Matching on status alone would swallow every other conflict.
+			const other = realApiError({ error: { code: 'SOMETHING_ELSE', message: 'Other conflict.' } });
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: other }],
+				continueOnFail: true,
+			});
+			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+			expect(result[0][0].json.error).not.toMatch(/seats are left/);
 		});
 	});
 
@@ -651,11 +702,33 @@ describe('Tallyfy node - request building', () => {
 		});
 
 		it('accepts an already-unwrapped envelope', () => {
+			// The bare inner object, with no `error` wrapper at all. The previous
+			// version of this test passed the WRAPPED shape and so proved nothing
+			// about the name it carries.
+			expect(seatPoolExhaustedMessage(ENVELOPE.error)).toMatch(/No full seats are left/);
 			expect(seatPoolExhaustedMessage({ error: ENVELOPE.error })).toMatch(/No full seats are left/);
 		});
 
+		it('finds the envelope on a top-level body', () => {
+			expect(seatPoolExhaustedMessage({ body: ENVELOPE })).toMatch(/No full seats are left/);
+		});
+
+		it('ignores the message text, so only the code can trigger it', () => {
+			// The message is localized server-side. Matching on it would break the
+			// moment someone translates it, and would fire on unrelated errors.
+			const err = { error: { code: 'SOMETHING_ELSE', message: 'committed full seat limit reached' } };
+			expect(seatPoolExhaustedMessage(err)).toBeUndefined();
+		});
+
+		it('ignores the status, so a plain 409 does not trigger it', () => {
+			const err = { status: 409, statusCode: 409, httpCode: '409', message: '409 - Conflict' };
+			expect(seatPoolExhaustedMessage(err)).toBeUndefined();
+		});
+
 		it('never renders "undefined seats" when pool_type is missing', () => {
-			const err = { error: { code: 'SEAT_POOL_EXHAUSTED', message: 'Nope.' } };
+			// No `message` either, so this pins BOTH fallbacks. With the message
+			// present the reason fallback was untested and could emit "undefined".
+			const err = { error: { code: 'SEAT_POOL_EXHAUSTED' } };
 			const msg = seatPoolExhaustedMessage(err)!;
 			expect(msg).not.toMatch(/undefined/);
 			expect(msg).toMatch(/No available seats are left/);

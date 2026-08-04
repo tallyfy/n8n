@@ -1,3 +1,4 @@
+import { NodeOperationError } from 'n8n-workflow';
 import type {
 	IExecuteFunctions,
 	IDataObject,
@@ -15,11 +16,27 @@ import type {
  *              "message": "...committed full seat limit...",
  *              "details": {"pool_type": "full"}}}
  *
- * Three of this node's operations can hit it: User > Invite, User > Change
- * Role, and User > Enable. Left alone, n8n surfaces the transport failure as a
- * generic "409 - Conflict", so the operator sees neither the reason nor
- * `pool_type`, and `pool_type` is the whole difference between buying light
+ * Three of this node's operations can hit it: User > Invite, User > Update Role
+ * and User > Enable.
+ *
+ * What the operator loses without this is narrower than it looks, and worth
+ * stating precisely. n8n's own NodeApiError already lifts the server message
+ * into `description`, so the reason IS visible today. What is lost is
+ * `details.pool_type`, and that is the whole difference between buying light
  * seats and buying full seats.
+ *
+ * WHERE THE ENVELOPE ACTUALLY IS. This matters more than it should. The node
+ * calls httpRequestWithAuthentication, which is axios-backed and rethrows as
+ * `new NodeApiError(node, axiosError)`. Two consequences, both measured against
+ * the installed n8n-workflow rather than assumed:
+ *
+ *   1. NodeApiError declares a bare `cause` class field, so under ES2022 field
+ *      semantics it is reset to undefined after super() returns. Walking
+ *      `cause` off a NodeApiError therefore reaches nothing. The walk below is
+ *      kept only for wrappers that preserve it.
+ *   2. The envelope survives at `err.context.data`, and axios puts it at
+ *      `response.data`, NOT `response.body`. `body` is the legacy
+ *      `this.helpers.request` convention, which this node does not use.
  *
  * Returns a readable message, or undefined for anything that is not this error
  * (every other failure keeps n8n's own handling untouched).
@@ -27,16 +44,26 @@ import type {
 export function seatPoolExhaustedMessage(error: unknown): string | undefined {
 	if (typeof error !== 'object' || error === null) return undefined;
 
-	// The body lands in a different place depending on how far up the stack the
-	// error was wrapped, so check each known location rather than guessing one.
-	// The depth bound is what guarantees termination. A self-referential `cause`
-	// is real (n8n has re-wrapped its own errors before), and an unbounded walk
-	// of one would hang the workflow, so never relax this into `while (node)`.
+	// The body lands in a different place depending on the wrapper, so check
+	// each known location rather than guessing one. The depth bound is what
+	// guarantees termination: a self-referential `cause` is real, and an
+	// unbounded walk of one would hang the workflow, so never relax this into
+	// `while (node)`.
 	const candidates: unknown[] = [];
 	let node: unknown = error;
 	for (let depth = 0; depth < 4 && typeof node === 'object' && node !== null; depth++) {
 		const obj = node as Record<string, unknown>;
-		candidates.push(obj.error, obj.body, (obj.response as Record<string, unknown> | undefined)?.body);
+		const response = obj.response as Record<string, unknown> | undefined;
+		const context = obj.context as Record<string, unknown> | undefined;
+		candidates.push(
+			// `node` itself, so an already-unwrapped envelope works too.
+			obj,
+			context?.data, // where NodeApiError actually keeps it
+			response?.data, // axios
+			response?.body, // legacy this.helpers.request
+			obj.error,
+			obj.body,
+		);
 		node = obj.cause;
 	}
 
@@ -51,6 +78,9 @@ function extractSeatPoolEnvelope(candidate: unknown): Record<string, unknown> | 
 	// n8n stringifies some bodies before attaching them.
 	let value = candidate;
 	if (typeof value === 'string') {
+		// Fast path only. The code check below is what actually rejects, so this
+		// has no behaviour of its own to test; it just avoids parsing every
+		// unrelated string body the walk collects.
 		if (!value.includes('SEAT_POOL_EXHAUSTED')) return undefined;
 		try {
 			value = JSON.parse(value);
@@ -3959,12 +3989,16 @@ export class Tallyfy implements INodeType {
 					continue;
 				}
 				if (seatMessage) {
-					// The original error is kept as `cause` so nothing is lost. Assigned
-					// rather than passed to the constructor: that option is ES2022 and
-					// this package targets es2019 (see tsconfig.json).
-					const wrapped = new Error(seatMessage) as Error & { cause?: unknown };
-					wrapped.cause = error;
-					throw wrapped;
+					// NodeOperationError, NOT a plain Error. workflow-execute reports a
+					// plain non-axios Error to Sentry, so throwing one here would page us
+					// on a customer's billing state: the exact opposite of the intent.
+					// It also keeps itemIndex, which matters because this node loops over
+					// items and a plain Error loses per-item attribution.
+					throw new NodeOperationError(this.getNode(), error as Error, {
+						message: seatMessage,
+						itemIndex: i,
+						level: 'warning',
+					});
 				}
 				throw error;
 			}
