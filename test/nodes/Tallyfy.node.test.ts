@@ -1,5 +1,5 @@
 import type { INodeExecutionData } from 'n8n-workflow';
-import { Tallyfy } from '../../nodes/Tallyfy/Tallyfy.node';
+import { Tallyfy, seatPoolExhaustedMessage } from '../../nodes/Tallyfy/Tallyfy.node';
 import { createContextMock, requestAt, credentialAt } from '../helpers/mocks';
 
 const BASE = 'https://go.tallyfy.com/api';
@@ -544,6 +544,147 @@ describe('Tallyfy node - request building', () => {
 			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
 			expect(httpMock).toHaveBeenCalledTimes(1);
 			expect(result[0][0].json).toEqual({ error: 'boom' });
+		});
+	});
+
+	// api-v2 #9206 refuses a seat-consuming action with 409 + a NESTED envelope.
+	// Three operations here can hit it: User > Invite / Change Role / Enable.
+	// Without the rewrite the operator sees only "409 - Conflict", losing both
+	// the reason and pool_type (which decides light vs full seats to buy).
+	describe('Seat pool exhausted (api-v2 #9206)', () => {
+		const BODY = {
+			error: {
+				code: 'SEAT_POOL_EXHAUSTED',
+				message: 'Your organization has reached its committed full seat limit.',
+				details: { pool_type: 'full' },
+			},
+		};
+
+		/** Shape n8n produces: a NodeApiError wrapping the transport error. */
+		function apiError(body: unknown): Error {
+			const inner = new Error('409 - Conflict') as Error & { response?: unknown };
+			inner.response = { body };
+			// `cause` is assigned, not passed to the constructor: that option is
+			// ES2022 and this package targets es2019 (see tsconfig.json).
+			const outer = new Error('The service was not able to process your request') as Error & {
+				cause?: unknown;
+			};
+			outer.cause = inner;
+			return outer;
+		}
+
+		const INVITE = {
+			resource: 'user',
+			operation: 'invite',
+			email: 'new@example.com',
+			firstName: 'New',
+			lastName: 'Person',
+			role: 'standard',
+			message: 'Welcome aboard',
+		};
+
+		it('replaces the generic transport error with the reason and the pool type', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: apiError(BODY) }],
+			});
+			await expect(new Tallyfy().execute.call(ctx)).rejects.toThrow(
+				/committed full seat limit[\s\S]*No full seats are left/,
+			);
+		});
+
+		it('keeps the original error as the cause so nothing is lost', async () => {
+			const original = apiError(BODY);
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: original }],
+			});
+			await expect(new Tallyfy().execute.call(ctx)).rejects.toHaveProperty('cause', original);
+		});
+
+		it('uses the readable message on the continueOnFail path too', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: apiError(BODY) }],
+				continueOnFail: true,
+			});
+			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+			expect(result[0][0].json.error).toMatch(/No full seats are left/);
+		});
+
+		it('names the light pool when that is the one that is full', async () => {
+			const light = {
+				error: { ...BODY.error, details: { pool_type: 'light' } },
+			};
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: apiError(light) }],
+				continueOnFail: true,
+			});
+			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+			expect(result[0][0].json.error).toMatch(/No light seats are left/);
+		});
+
+		it('leaves every other error exactly as n8n produced it', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: new Error('boom') }],
+				continueOnFail: true,
+			});
+			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+			expect(result[0][0].json).toEqual({ error: 'boom' });
+		});
+	});
+
+	describe('seatPoolExhaustedMessage (unit)', () => {
+		const ENVELOPE = {
+			error: {
+				code: 'SEAT_POOL_EXHAUSTED',
+				message: 'Full seat limit reached.',
+				details: { pool_type: 'full' },
+			},
+		};
+
+		it('finds the envelope when the body is a JSON STRING', () => {
+			const err = { cause: { response: { body: JSON.stringify(ENVELOPE) } } };
+			expect(seatPoolExhaustedMessage(err)).toMatch(/No full seats are left/);
+		});
+
+		it('accepts an already-unwrapped envelope', () => {
+			expect(seatPoolExhaustedMessage({ error: ENVELOPE.error })).toMatch(/No full seats are left/);
+		});
+
+		it('never renders "undefined seats" when pool_type is missing', () => {
+			const err = { error: { code: 'SEAT_POOL_EXHAUSTED', message: 'Nope.' } };
+			const msg = seatPoolExhaustedMessage(err)!;
+			expect(msg).not.toMatch(/undefined/);
+			expect(msg).toMatch(/No available seats are left/);
+		});
+
+		it('returns undefined for a different 409 so its own message survives', () => {
+			const err = { error: { code: 'SOMETHING_ELSE', message: 'Other conflict.' } };
+			expect(seatPoolExhaustedMessage(err)).toBeUndefined();
+		});
+
+		it('returns undefined for non-objects and terminates on a cyclic cause', () => {
+			expect(seatPoolExhaustedMessage(null)).toBeUndefined();
+			expect(seatPoolExhaustedMessage('nope')).toBeUndefined();
+			// Self-referential `cause`. If the walk is ever relaxed into `while (node)`
+			// this hangs the workflow, so the assertion here is really "it returns".
+			const cyclic: Record<string, unknown> = { message: 'x' };
+			cyclic.cause = cyclic;
+			expect(seatPoolExhaustedMessage(cyclic)).toBeUndefined();
+		});
+
+		// The bound is what makes the cyclic case above terminate, so pin its exact
+		// value. A cycle can only demonstrate an unbounded walk by hanging; a finite
+		// chain proves the same guard while still finishing.
+		it('walks four levels of cause and stops', () => {
+			const nest = (depth: number): Record<string, unknown> =>
+				depth === 0 ? { ...ENVELOPE } : { message: 'wrapper', cause: nest(depth - 1) };
+
+			expect(seatPoolExhaustedMessage(nest(3))).toMatch(/No full seats are left/);
+			expect(seatPoolExhaustedMessage(nest(4))).toBeUndefined();
 		});
 	});
 });

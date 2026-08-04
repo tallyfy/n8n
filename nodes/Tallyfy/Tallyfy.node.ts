@@ -7,6 +7,80 @@ import type {
 	IHttpRequestOptions,
 } from 'n8n-workflow';
 
+/**
+ * Tallyfy's allocated-seats billing (api-v2 #9206) refuses a seat-consuming
+ * action with HTTP 409 and a NESTED body:
+ *
+ *   {"error": {"code": "SEAT_POOL_EXHAUSTED",
+ *              "message": "...committed full seat limit...",
+ *              "details": {"pool_type": "full"}}}
+ *
+ * Three of this node's operations can hit it: User > Invite, User > Change
+ * Role, and User > Enable. Left alone, n8n surfaces the transport failure as a
+ * generic "409 - Conflict", so the operator sees neither the reason nor
+ * `pool_type`, and `pool_type` is the whole difference between buying light
+ * seats and buying full seats.
+ *
+ * Returns a readable message, or undefined for anything that is not this error
+ * (every other failure keeps n8n's own handling untouched).
+ */
+export function seatPoolExhaustedMessage(error: unknown): string | undefined {
+	if (typeof error !== 'object' || error === null) return undefined;
+
+	// The body lands in a different place depending on how far up the stack the
+	// error was wrapped, so check each known location rather than guessing one.
+	// The depth bound is what guarantees termination. A self-referential `cause`
+	// is real (n8n has re-wrapped its own errors before), and an unbounded walk
+	// of one would hang the workflow, so never relax this into `while (node)`.
+	const candidates: unknown[] = [];
+	let node: unknown = error;
+	for (let depth = 0; depth < 4 && typeof node === 'object' && node !== null; depth++) {
+		const obj = node as Record<string, unknown>;
+		candidates.push(obj.error, obj.body, (obj.response as Record<string, unknown> | undefined)?.body);
+		node = obj.cause;
+	}
+
+	for (const candidate of candidates) {
+		const envelope = extractSeatPoolEnvelope(candidate);
+		if (envelope) return renderSeatPoolMessage(envelope);
+	}
+	return undefined;
+}
+
+function extractSeatPoolEnvelope(candidate: unknown): Record<string, unknown> | undefined {
+	// n8n stringifies some bodies before attaching them.
+	let value = candidate;
+	if (typeof value === 'string') {
+		if (!value.includes('SEAT_POOL_EXHAUSTED')) return undefined;
+		try {
+			value = JSON.parse(value);
+		} catch {
+			return undefined;
+		}
+	}
+	if (typeof value !== 'object' || value === null) return undefined;
+
+	// Accept both the whole response body and an already-unwrapped envelope, so
+	// this keeps working if a caller hands us either one.
+	const outer = value as Record<string, unknown>;
+	const inner = typeof outer.error === 'object' && outer.error !== null ? (outer.error as Record<string, unknown>) : outer;
+	return inner.code === 'SEAT_POOL_EXHAUSTED' ? inner : undefined;
+}
+
+function renderSeatPoolMessage(envelope: Record<string, unknown>): string {
+	const details = (typeof envelope.details === 'object' && envelope.details !== null
+		? envelope.details
+		: {}) as Record<string, unknown>;
+	// pool_type is documented as always present, but "no undefined seats left"
+	// would be worse than a slightly vaguer sentence.
+	const poolType = typeof details.pool_type === 'string' && details.pool_type ? details.pool_type : 'available';
+	const reason = typeof envelope.message === 'string' && envelope.message
+		? envelope.message
+		: 'The organization has reached its committed seat limit.';
+
+	return `${reason} No ${poolType} seats are left in the organization's committed pool. A Tallyfy admin can purchase more seats under Settings > Billing, or free one by disabling an existing ${poolType} member.`;
+}
+
 export class Tallyfy implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Tallyfy',
@@ -3874,10 +3948,23 @@ export class Tallyfy implements INodeType {
 				}
 
 			} catch (error) {
+				// A seat-pool refusal is an actionable business rule, not a transport
+				// failure, so rewrite it and let the operator learn WHICH pool is full
+				// and what to do. Everything else keeps n8n's own error handling.
+				const seatMessage = seatPoolExhaustedMessage(error);
 				if (this.continueOnFail()) {
-					const errorMessage = error instanceof Error ? error.message : String(error);
+					const errorMessage =
+						seatMessage ?? (error instanceof Error ? error.message : String(error));
 					returnData.push({ json: { error: errorMessage } });
 					continue;
+				}
+				if (seatMessage) {
+					// The original error is kept as `cause` so nothing is lost. Assigned
+					// rather than passed to the constructor: that option is ES2022 and
+					// this package targets es2019 (see tsconfig.json).
+					const wrapped = new Error(seatMessage) as Error & { cause?: unknown };
+					wrapped.cause = error;
+					throw wrapped;
 				}
 				throw error;
 			}
