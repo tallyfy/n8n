@@ -17,8 +17,7 @@ since 2026-07-26; installed via `npm install n8n-nodes-tallyfy`).
 
 ## Working conventions
 
-- **Direct pushes and merges to `main` are permitted in this repo (owner decision 2026-08-04).**
-  Claude may merge PRs and push straight to `main` here. This is one of only two repos in the Tallyfy
+- **Claude may merge PRs and push directly to `main` in this repo (owner decision 2026-08-04).** This is one of only two repos in the Tallyfy
   estate where that covers **code**, not just documentation; everywhere else code needs a PR.
   **The reason it is safe: pushing to `main` publishes nothing.** `.github/workflows/release.yml` is
   the only workflow, and it triggers on `push: tags: ['v*']`, never on a branch. Its `NPM_TOKEN`
