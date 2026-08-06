@@ -15,6 +15,22 @@ since 2026-07-26; installed via `npm install n8n-nodes-tallyfy`).
 > NOT yet published. The next npm publish must bump `package.json` to 1.1.2 first, then
 > `npm publish --otp=XXXXXX` (2FA). Gates green: tsc build, eslint (0 errors), jest 46 passing.
 
+## Working conventions
+
+- **Direct pushes and merges to `main` are permitted in this repo (owner decision 2026-08-04).**
+  Claude may merge PRs and push straight to `main` here. This is one of only two repos in the Tallyfy
+  estate where that covers **code**, not just documentation; everywhere else code needs a PR.
+  **The reason it is safe: pushing to `main` publishes nothing.** `.github/workflows/release.yml` is
+  the only workflow, and it triggers on `push: tags: ['v*']`, never on a branch. Its `NPM_TOKEN`
+  secret is not configured either, so today the npm release is the manual two-step recorded above —
+  bump `package.json`, then `npm publish --otp=XXXXXX`. The droplet has no CI/CD at all
+  ("**CI/CD**: None — deployed manually", under Production Deployment).
+  **If that ever changes — `NPM_TOKEN` provisioned and the release workflow retriggered from a
+  branch, or any publish step wired to `main` — this permission has to be re-examined, because the
+  change would silently remove its only justification.**
+  What still applies in full: every PR auto-closes a scoped issue, every PR body opens in plain
+  English, and you assert only what you measured.
+
 ## Development (modernized 2026-07 — tallyfy/n8n#4)
 
 - **Toolchain**: `n8n-workflow` ^2.16.0 (dev + peer), `engines.node` >=20.15, ESLint 8 + `@typescript-eslint` 8 + `eslint-plugin-n8n-nodes-base` 1.16.7 (+ `jsonc-eslint-parser` for linting package.json). `npm run build` (tsc + gulp icons) and `npm run lint` are both green.
