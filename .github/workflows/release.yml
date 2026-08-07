@@ -1,10 +1,22 @@
 # Publishes n8n-nodes-tallyfy to npm with provenance (required for n8n verified
 # community nodes since 2026-05-01). Triggered by pushing a version tag (v*).
 #
-# Setup required once: add an npm automation token with publish rights for
-# n8n-nodes-tallyfy as the NPM_TOKEN repository secret. Provenance itself needs
-# no secret - it uses the workflow's OIDC token (id-token: write) and requires
-# this repository to be public.
+# Setup required once, on npmjs.com, NOT in GitHub secrets: register a trusted
+# publisher for n8n-nodes-tallyfy under Settings -> Trusted publishers -> GitHub
+# Actions, with organization `tallyfy`, repository `n8n`, workflow filename
+# `release.yml`. Authentication is then OIDC: this workflow exchanges the
+# id-token below for a short-lived npm credential, and no long-lived token is
+# stored anywhere.
+#
+# This replaced an NPM_TOKEN repository secret, which is why that secret may
+# still exist. It is no longer read by this workflow and can be deleted. The
+# old arrangement could not publish anyway: a token publish is refused unless
+# the token is a granular access token with 2FA bypass, and npm removes direct
+# publishing from those around Jan 2027, so a replacement token would have been
+# obsolete within months.
+#
+# Provenance needs no secret either - it uses the same OIDC token
+# (id-token: write) and requires this repository to be public, which it is.
 #
 # Release flow:
 #   1. Bump "version" in package.json (commit to main)
@@ -35,6 +47,14 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: npm
 
+      # Trusted publishing (OIDC) needs npm >= 11.5.1 and Node 22 ships an older npm, so the
+      # runner's bundled version is not enough. Without this the publish step falls back to
+      # looking for a token and fails with E401/E403 rather than anything that names OIDC.
+      - name: Upgrade npm for OIDC trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm -v
+
       - name: Install dependencies
         run: npm ci
 
@@ -58,7 +78,15 @@ jobs:
             exit 1
           fi
 
+      # Authentication is npm trusted publishing (OIDC): the runner exchanges the id-token
+      # granted above for a short-lived npm credential. There is deliberately NO NODE_AUTH_TOKEN
+      # here — the long-lived NPM_TOKEN secret this step used to read is not needed, and npm
+      # removes direct publishing from bypass-2FA tokens around Jan 2027, so a token would have
+      # been a short-lived fix. Provenance is generated because tallyfy/n8n is a PUBLIC repo;
+      # npm does not generate it for packages published from private repositories.
+      #
+      # This step CANNOT work until the trusted publisher is registered on npmjs.com for
+      # n8n-nodes-tallyfy: Settings -> Trusted publishers -> GitHub Actions, with
+      # organization `tallyfy`, repository `n8n`, workflow filename `release.yml`.
       - name: Publish to npm with provenance
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
