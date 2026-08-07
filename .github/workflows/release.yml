@@ -44,7 +44,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: 'https://registry.npmjs.org'
           cache: npm
 
       # Trusted publishing (OIDC) needs npm >= 11.5.1 and Node 22 ships an older npm, so the
