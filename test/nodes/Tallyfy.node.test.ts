@@ -1,8 +1,18 @@
 import type { INodeExecutionData } from 'n8n-workflow';
-import { Tallyfy } from '../../nodes/Tallyfy/Tallyfy.node';
+import { NodeApiError, NodeOperationError } from 'n8n-workflow';
+import { Tallyfy, seatPoolExhaustedMessage } from '../../nodes/Tallyfy/Tallyfy.node';
 import { createContextMock, requestAt, credentialAt } from '../helpers/mocks';
 
 const BASE = 'https://go.tallyfy.com/api';
+/** Mirrors the node identity createContextMock hands back from getNode(). */
+const NODE = {
+	id: 'test-node',
+	name: 'Tallyfy',
+	type: 'n8n-nodes-tallyfy.tallyfy',
+	typeVersion: 1,
+	position: [0, 0] as [number, number],
+	parameters: {},
+};
 const ORG = 'ORG123';
 
 /** Run the node's execute() with the given params and captured HTTP responses. */
@@ -544,6 +554,210 @@ describe('Tallyfy node - request building', () => {
 			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
 			expect(httpMock).toHaveBeenCalledTimes(1);
 			expect(result[0][0].json).toEqual({ error: 'boom' });
+		});
+	});
+
+	// api-v2 #9206 refuses a seat-consuming action with 409 + a NESTED envelope.
+	// Three operations here can hit it: User > Invite / Update Role / Enable.
+	//
+	// These tests build a REAL NodeApiError from a REAL axios-shaped error,
+	// because the first version of this suite invented its own error shape and
+	// every test passed against an implementation that never fired in
+	// production. A fake here is not a shortcut, it is the bug.
+	describe('Seat pool exhausted (api-v2 #9206)', () => {
+		const BODY = {
+			error: {
+				code: 'SEAT_POOL_EXHAUSTED',
+				message: 'Your organization has reached its committed full seat limit.',
+				details: { pool_type: 'full' },
+			},
+		};
+
+		/**
+		 * What the node actually catches. httpRequestWithAuthentication is
+		 * axios-backed and rethrows as `new NodeApiError(node, axiosError)`, so
+		 * the envelope arrives at `context.data` and axios' own copy sits at
+		 * `response.data`. NodeApiError resets `cause` to undefined via its bare
+		 * class field, so nothing is reachable by walking `cause`.
+		 */
+		function realApiError(body: unknown): Error {
+			const axiosError = Object.assign(new Error('Request failed with status code 409'), {
+				isAxiosError: true,
+				response: { status: 409, data: body },
+			});
+			return new NodeApiError(NODE, axiosError as never);
+		}
+
+		/** Legacy `this.helpers.request` shape, kept so both conventions stay covered. */
+		function legacyRequestError(body: unknown): Error {
+			const err = new Error('409 - Conflict') as Error & { response?: unknown };
+			err.response = { body };
+			return err;
+		}
+
+		const INVITE = {
+			resource: 'user',
+			operation: 'invite',
+			email: 'new@example.com',
+			firstName: 'New',
+			lastName: 'Person',
+			role: 'standard',
+			message: 'Welcome aboard',
+		};
+
+		it('reads the envelope off the error n8n really throws', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: realApiError(BODY) }],
+			});
+			await expect(new Tallyfy().execute.call(ctx)).rejects.toThrow(
+				/committed full seat limit[\s\S]*No full seats are left/,
+			);
+		});
+
+		it('also reads the legacy request-library shape', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: legacyRequestError(BODY) }],
+			});
+			await expect(new Tallyfy().execute.call(ctx)).rejects.toThrow(/No full seats are left/);
+		});
+
+		it('throws a warning-level node error, not a plain Error that would page us', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: realApiError(BODY) }],
+			});
+			// workflow-execute reports a plain non-axios Error to Sentry. A seat cap
+			// is the customer's billing state, so it must never take that branch.
+			const thrown = await new Tallyfy()
+				.execute.call(ctx)
+				.then(() => undefined)
+				.catch((e: unknown) => e as Record<string, unknown>);
+
+			expect(thrown).toBeInstanceOf(NodeOperationError);
+			expect(thrown!.level).toBe('warning');
+			// This node loops over items, so per-item attribution has to survive.
+			expect((thrown!.context as Record<string, unknown>).itemIndex).toBe(0);
+			// Nothing is lost: the original envelope is still on the error.
+			expect(JSON.stringify(thrown!.context)).toContain('SEAT_POOL_EXHAUSTED');
+		});
+
+		it('uses the readable message on the continueOnFail path too', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: realApiError(BODY) }],
+				continueOnFail: true,
+			});
+			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+			expect(result[0][0].json.error).toMatch(/No full seats are left/);
+		});
+
+		it('names the light pool when that is the one that is full', async () => {
+			const light = { error: { ...BODY.error, details: { pool_type: 'light' } } };
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: realApiError(light) }],
+				continueOnFail: true,
+			});
+			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+			expect(result[0][0].json.error).toMatch(/No light seats are left/);
+		});
+
+		it('leaves every other error exactly as n8n produced it', async () => {
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: new Error('boom') }],
+				continueOnFail: true,
+			});
+			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+			expect(result[0][0].json).toEqual({ error: 'boom' });
+		});
+
+		it('does not hijack an unrelated 409 from the same endpoint', async () => {
+			// Matching on status alone would swallow every other conflict.
+			const other = realApiError({ error: { code: 'SOMETHING_ELSE', message: 'Other conflict.' } });
+			const { ctx } = createContextMock({
+				params: INVITE,
+				httpResponses: [{ __throw: other }],
+				continueOnFail: true,
+			});
+			const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+			expect(result[0][0].json.error).not.toMatch(/seats are left/);
+		});
+	});
+
+	describe('seatPoolExhaustedMessage (unit)', () => {
+		const ENVELOPE = {
+			error: {
+				code: 'SEAT_POOL_EXHAUSTED',
+				message: 'Full seat limit reached.',
+				details: { pool_type: 'full' },
+			},
+		};
+
+		it('finds the envelope when the body is a JSON STRING', () => {
+			const err = { cause: { response: { body: JSON.stringify(ENVELOPE) } } };
+			expect(seatPoolExhaustedMessage(err)).toMatch(/No full seats are left/);
+		});
+
+		it('accepts an already-unwrapped envelope', () => {
+			// The bare inner object, with no `error` wrapper at all. The previous
+			// version of this test passed the WRAPPED shape and so proved nothing
+			// about the name it carries.
+			expect(seatPoolExhaustedMessage(ENVELOPE.error)).toMatch(/No full seats are left/);
+			expect(seatPoolExhaustedMessage({ error: ENVELOPE.error })).toMatch(/No full seats are left/);
+		});
+
+		it('finds the envelope on a top-level body', () => {
+			expect(seatPoolExhaustedMessage({ body: ENVELOPE })).toMatch(/No full seats are left/);
+		});
+
+		it('ignores the message text, so only the code can trigger it', () => {
+			// The message is localized server-side. Matching on it would break the
+			// moment someone translates it, and would fire on unrelated errors.
+			const err = { error: { code: 'SOMETHING_ELSE', message: 'committed full seat limit reached' } };
+			expect(seatPoolExhaustedMessage(err)).toBeUndefined();
+		});
+
+		it('ignores the status, so a plain 409 does not trigger it', () => {
+			const err = { status: 409, statusCode: 409, httpCode: '409', message: '409 - Conflict' };
+			expect(seatPoolExhaustedMessage(err)).toBeUndefined();
+		});
+
+		it('never renders "undefined seats" when pool_type is missing', () => {
+			// No `message` either, so this pins BOTH fallbacks. With the message
+			// present the reason fallback was untested and could emit "undefined".
+			const err = { error: { code: 'SEAT_POOL_EXHAUSTED' } };
+			const msg = seatPoolExhaustedMessage(err)!;
+			expect(msg).not.toMatch(/undefined/);
+			expect(msg).toMatch(/No available seats are left/);
+		});
+
+		it('returns undefined for a different 409 so its own message survives', () => {
+			const err = { error: { code: 'SOMETHING_ELSE', message: 'Other conflict.' } };
+			expect(seatPoolExhaustedMessage(err)).toBeUndefined();
+		});
+
+		it('returns undefined for non-objects and terminates on a cyclic cause', () => {
+			expect(seatPoolExhaustedMessage(null)).toBeUndefined();
+			expect(seatPoolExhaustedMessage('nope')).toBeUndefined();
+			// Self-referential `cause`. If the walk is ever relaxed into `while (node)`
+			// this hangs the workflow, so the assertion here is really "it returns".
+			const cyclic: Record<string, unknown> = { message: 'x' };
+			cyclic.cause = cyclic;
+			expect(seatPoolExhaustedMessage(cyclic)).toBeUndefined();
+		});
+
+		// The bound is what makes the cyclic case above terminate, so pin its exact
+		// value. A cycle can only demonstrate an unbounded walk by hanging; a finite
+		// chain proves the same guard while still finishing.
+		it('walks four levels of cause and stops', () => {
+			const nest = (depth: number): Record<string, unknown> =>
+				depth === 0 ? { ...ENVELOPE } : { message: 'wrapper', cause: nest(depth - 1) };
+
+			expect(seatPoolExhaustedMessage(nest(3))).toMatch(/No full seats are left/);
+			expect(seatPoolExhaustedMessage(nest(4))).toBeUndefined();
 		});
 	});
 });
