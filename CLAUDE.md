@@ -5,15 +5,24 @@
 ## Overview
 
 Custom n8n community node package providing 96 Tallyfy API operations across 12 resources plus a
-Trigger node, for workflow automation. Published on npm as `n8n-nodes-tallyfy` **v1.1.1** (npm latest
-since 2026-07-26; installed via `npm install n8n-nodes-tallyfy`).
+Trigger node, for workflow automation. Published on npm as `n8n-nodes-tallyfy` **v1.1.2** (npm latest
+since 2026-08-08; installed via `npm install n8n-nodes-tallyfy`). **1.1.2 is the first release
+published by CI** rather than by hand, via npm trusted publishing (OIDC) with SLSA provenance.
 
-> **Unreleased on `main`** (2026-07-28): commit `47c0225` adds the middleware **#178** lenient kick-off
-> choice match - `encodeKickoffValue` matches a dropdown/multi-select template option even when the
-> value differs only by letter case or surrounding whitespace, then sends the option's own canonical
-> text (a `canonicalChoiceEq` fallback before the fail-loud throw; parity with Zapier/Workato/Celigo/CLI/MCP).
-> NOT yet published. The next npm publish must bump `package.json` to 1.1.2 first, then
-> `npm publish --otp=XXXXXX` (2FA). Gates green: tsc build, eslint (0 errors), jest 46 passing.
+> ✅ **RELEASED in v1.1.2 on 2026-08-08.** This block said "Unreleased on `main`" from 2026-07-28
+> until then. `47c0225` (**#178** lenient kick-off choice match: `encodeKickoffValue` matches a
+> dropdown or multi-select template option differing only by letter case or surrounding whitespace,
+> then sends the option's own canonical text via a `canonicalChoiceEq` fallback before the fail-loud
+> throw; parity with Zapier/Workato/Celigo/CLI/MCP) and `6d8dfcd` (**#9** formField `updateValue`
+> run-level null precondition) both shipped in it.
+>
+> ⚠️ **The release recipe in this block was wrong and is why those fixes sat for eleven days.** It
+> said to bump `package.json` then run `npm publish --otp=XXXXXX`, presenting a manual 2FA publish as
+> the only route. The real blocker was never the OTP: it was that CI could not publish at all, and
+> the reason was misdiagnosed for weeks as a missing `NPM_TOKEN`. **Releases now go through CI.** The
+> whole procedure is: bump `version` in `package.json`, commit to `main`, then
+> `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag push is the trigger and there is no manual
+> publish step.
 
 ## Working conventions
 
@@ -31,23 +40,43 @@ since 2026-07-26; installed via `npm install n8n-nodes-tallyfy`).
   What still applies in full: every PR auto-closes a scoped issue, every PR body opens in plain
   English, and you assert only what you measured.
 
-  ⚠️ **The permission covers branches. It does NOT make a TAG push safe, and this file asserted the
-  opposite until 2026-08-07.** It said the `NPM_TOKEN` secret was "not configured", so the npm
-  release was a manual two-step. **Both halves were false when written.** Measured 2026-08-07:
-  `NPM_TOKEN` exists and was created `2026-07-22T10:10:15Z`
-  (`gh api repos/tallyfy/n8n/actions/secrets`), and 17 seconds later a `v1.1.0` tag push fired the
-  Release workflow for real (`gh run list --repo tallyfy/n8n` → run `29910897534`, `event=push`).
-  **So `git push --tags` on a `v*` tag attempts a live npm publish today.** See the Release bullet
-  below for how far that run got and where it stopped.
+  ⚠️ **The permission covers BRANCHES. A TAG push is a production release.** `git push origin vX.Y.Z`
+  publishes to npm, immediately and irreversibly, with no approval gate. Proven 2026-08-08: tag
+  `v1.1.2` published `n8n-nodes-tallyfy@1.1.2` to the public registry. Never push a `v*` tag to
+  "see whether the workflow works" — and note that even a FAILED run is not a no-op, because it
+  signs a provenance statement into the public sigstore transparency log before npm can reject it
+  (the `v1.1.0` run did exactly that, `logIndex 2217293290`).
+
+  *(History, because it cost eleven days and the misdiagnosis is the reusable part: this file used
+  to say the `NPM_TOKEN` secret was "not configured" and the release was a manual two-step. Both
+  were false. The secret had existed since 2026-07-22 and the real gate was npm refusing a token
+  publish without 2FA bypass. Chasing "provision the token" was the wrong fix twice over, since npm
+  removes direct publishing from bypass-2FA tokens around Jan 2027. The answer was to remove the
+  credential entirely.)*
 
 ## Development (modernized 2026-07 — tallyfy/n8n#4)
 
 - **Toolchain**: `n8n-workflow` ^2.16.0 (dev + peer), `engines.node` >=20.15, ESLint 8 + `@typescript-eslint` 8 + `eslint-plugin-n8n-nodes-base` 1.16.7 (+ `jsonc-eslint-parser` for linting package.json). `npm run build` (tsc + gulp icons) and `npm run lint` are both green.
 - **n8n-workflow 2.x API note**: `NodeConnectionType` is type-only in 2.x; `inputs`/`outputs` use the literal `['main']` form (same runtime value as the old enum).
 - **Deferred lint rules**: `.eslintrc.json` disables six `n8n-nodes-base` rules that would force user-visible UI/behavior changes (option-sorting, maxValue removal, color widget, error classes) plus the URL-mangling `cred-class-field-documentation-url-miscased`. Re-enable during the `@n8n/node-cli` verified-node re-scaffold (issue #4 phase 2).
-- **Release**: `.github/workflows/release.yml` publishes to npm with provenance on `v*` tags (gates: lint + build + tag/version match). ⚠️ **The `NPM_TOKEN` secret IS configured** (created `2026-07-22T10:10:15Z`) — this bullet said "not yet configured" until 2026-08-07 and was wrong. **A `v*` tag push therefore runs a real publish attempt, and it currently fails at the last step.** Measured 2026-08-07 on the only run that has ever fired (`29910897534`, tag `v1.1.0`, `event=push`, 2026-07-22): install, lint, build and "Verify tag matches package.json version" all passed, then "Publish to npm with provenance" failed with `npm error code E403 — Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages`. **That is a token-TYPE gate, not a missing secret**: the fix is an npm granular access token with 2FA bypass, not provisioning `NPM_TOKEN`. Tracked against #4's open "provenance-enabled publish workflow exists" criterion.
-- ⚠️ **A failed release run is NOT a no-op.** That same run signed and published a provenance statement to the public sigstore transparency log (`logIndex 2217293290`) *before* npm rejected the PUT. So a `v*` tag push writes a permanent public record even when the publish fails. Never push a `v*` tag to "see whether the workflow works".
-- **What is actually on npm**: `n8n-nodes-tallyfy@1.1.1` (npm latest). The only tag in the repo is `v1.1.0`, so npm latest is a version that was never tagged — it did not come from this workflow. **The automated path has never successfully published anything, and the manual `npm publish --otp` route above is the only one that has ever worked.** Measured 2026-08-07: `gh api repos/tallyfy/n8n/actions/runs` returns `total_count: 1` for the entire repo, and that one run is the failed `v1.1.0` release. The same count is the empirical proof of the branch-push permission above — no push to `main` has ever started a workflow run, because no workflow run other than that tag has ever existed.
+- **Release**: `.github/workflows/release.yml` publishes to npm **via trusted publishing (OIDC)** on
+  `v*` tags, with provenance. Gates in order: npm upgrade, `npm ci`, lint, build, test, tag/version
+  match, publish. **There is no publish credential.** The workflow exchanges its `id-token` for a
+  short-lived one; `release.yml` contains no `secrets.` reference at all, and the old `NPM_TOKEN`
+  repo secret was **deleted 2026-08-08** (`gh api repos/tallyfy/n8n/actions/secrets` → `total_count: 0`).
+  Registered publisher on npmjs.com: org `tallyfy`, repo `n8n`, workflow `release.yml`.
+- **To cut a release**: bump `version` in `package.json`, commit to `main`, then
+  `git tag vX.Y.Z && git push origin vX.Y.Z`. Nothing else. Do not run `npm publish` by hand.
+- ⚠️ **Two traps, both measured rather than theorised.** (1) `actions/setup-node` must NOT set
+  `registry-url` here. With it, setup-node writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
+  into a temp `.npmrc`; with no token that expands to empty, npm treats auth as configured, **skips
+  the OIDC exchange** and fails `ENEEDAUTH`. Caught by Cursor Bugbot on PR #16 before it shipped.
+  (2) A failed release run still writes a permanent public provenance record (see above), so a tag
+  push is never a safe experiment.
+- **What is on npm**: `n8n-nodes-tallyfy@1.1.2`, published 2026-08-08 by CI with SLSA provenance —
+  the first release this workflow has ever produced. Verify with
+  `curl -s https://registry.npmjs.org/-/npm/v1/attestations/n8n-nodes-tallyfy@1.1.2 | jq '[.attestations[].predicateType]'`.
+  Everything up to and including 1.1.1 was published by hand.
 - **macOS install gotcha**: n8n-workflow 2.x pulls `isolated-vm` (native C++ addon, needs Node >=22 headers to compile; fine on Linux CI). On a Mac whose CommandLineTools lack `usr/include/c++/v1` (broken CLT), `npm install` fails with `'memory' file not found` — work around with `export CPLUS_INCLUDE_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1`, and make sure Apple's `/usr/bin/libtool` (not Homebrew GNU libtool) wins in PATH or the `-static` archive step fails.
 
 ## Production Deployment
