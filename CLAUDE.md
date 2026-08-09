@@ -20,9 +20,17 @@ published by CI** rather than by hand, via npm trusted publishing (OIDC) with SL
 > said to bump `package.json` then run `npm publish --otp=XXXXXX`, presenting a manual 2FA publish as
 > the only route. The real blocker was never the OTP: it was that CI could not publish at all, and
 > the reason was misdiagnosed for weeks as a missing `NPM_TOKEN`. **Releases now go through CI.** The
-> whole procedure is: bump `version` in `package.json`, commit to `main`, then
-> `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag push is the trigger and there is no manual
-> publish step.
+> whole procedure is: bump `version` in `package.json`, **add a `## [X.Y.Z] - YYYY-MM-DD` entry to
+> `CHANGELOG.md`**, commit to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag push
+> is the trigger and there is no manual publish step.
+>
+> ⚠️ **The CHANGELOG step is enforced since 2026-08-09 and is not optional.** `scripts/check-changelog.sh`
+> runs first in `release.yml`, before `npm ci`, and fails the run when the pushed tag has no matching
+> heading. `npm test` fails the same way as soon as `package.json` is bumped without one, so the
+> mistake surfaces at commit time rather than at tag time. It was added because 1.1.0, 1.1.1 and
+> 1.1.2 all shipped with no entry: the procedure was written in two places and only the middleware
+> runbook mentioned the CHANGELOG, so the step only one document mentioned is the one that stopped
+> happening (#18, PR #20). Do not describe the procedure anywhere without that step.
 
 ## Working conventions
 
@@ -60,13 +68,24 @@ published by CI** rather than by hand, via npm trusted publishing (OIDC) with SL
 - **n8n-workflow 2.x API note**: `NodeConnectionType` is type-only in 2.x; `inputs`/`outputs` use the literal `['main']` form (same runtime value as the old enum).
 - **Deferred lint rules**: `.eslintrc.json` disables six `n8n-nodes-base` rules that would force user-visible UI/behavior changes (option-sorting, maxValue removal, color widget, error classes) plus the URL-mangling `cred-class-field-documentation-url-miscased`. Re-enable during the `@n8n/node-cli` verified-node re-scaffold (issue #4 phase 2).
 - **Release**: `.github/workflows/release.yml` publishes to npm **via trusted publishing (OIDC)** on
-  `v*` tags, with provenance. Gates in order: npm upgrade, `npm ci`, lint, build, test, tag/version
-  match, publish. **There is no publish credential.** The workflow exchanges its `id-token` for a
+  `v*` tags, with provenance. Gates in order: **CHANGELOG entry check**, npm upgrade, `npm ci`, lint,
+  build, test, tag/version match, publish. The CHANGELOG check runs first because it needs only the
+  checkout, so a malformed release fails in seconds instead of after a full install and build.
+  **There is no publish credential.** The workflow exchanges its `id-token` for a
   short-lived one; `release.yml` contains no `secrets.` reference at all, and the old `NPM_TOKEN`
   repo secret was **deleted 2026-08-08** (`gh api repos/tallyfy/n8n/actions/secrets` → `total_count: 0`).
   Registered publisher on npmjs.com: org `tallyfy`, repo `n8n`, workflow `release.yml`.
-- **To cut a release**: bump `version` in `package.json`, commit to `main`, then
-  `git tag vX.Y.Z && git push origin vX.Y.Z`. Nothing else. Do not run `npm publish` by hand.
+- **To cut a release**: bump `version` in `package.json`, **add a `## [X.Y.Z] - YYYY-MM-DD` entry to
+  `CHANGELOG.md`**, commit to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. Nothing else.
+  Do not run `npm publish` by hand. Check the changelog half locally before tagging, since a tag push
+  is irreversible: `scripts/check-changelog.sh <version>` exits 0 when the entry exists, 1 when it
+  does not, 2 when it was called wrongly.
+- ⚠️ **`main` currently carries an UNRELEASED user-facing fix.** `d2224ba` (PR #13, issue #12) changes
+  a bare "409 - Conflict" into a message naming the seat pool that is actually full, and touches
+  `nodes/Tallyfy/Tallyfy.node.ts` by 132 lines. `package.json` still reads `1.1.2`, which is already
+  on npm, so nobody has it. Tracked as **#21**. Re-derive rather than trusting this line:
+  `git log v1.1.2..origin/main` and compare `node -p "require('./package.json').version"` against
+  `npm view n8n-nodes-tallyfy version`.
 - ⚠️ **Two traps, both measured rather than theorised.** (1) `actions/setup-node` must NOT set
   `registry-url` here. With it, setup-node writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
   into a temp `.npmrc`; with no token that expands to empty, npm treats auth as configured, **skips

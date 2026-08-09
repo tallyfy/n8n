@@ -188,7 +188,13 @@ All fields support n8n expressions, allowing you to:
 - Requires Node.js 20.15 or newer.
 - Built and tested against `n8n-workflow` 2.16.
 
-**Version note**: this package is on the 1.1.x line. Version 1.1.1 is the current package version and the release published to npm (npm latest since 2026-07-26); it adds the kickoff/prerun form-field encoding fix plus a live-API test layer. `npm install n8n-nodes-tallyfy` installs 1.1.1 today. The remaining rollout step is the GUI install on the answers-n8n droplet.
+**Version note**: this package is on the 1.1.x line. For what each release contains, see [CHANGELOG.md](CHANGELOG.md). For the version you would install right now, ask npm rather than this page:
+
+```bash
+npm view n8n-nodes-tallyfy version
+```
+
+Releases are published by GitHub Actions using npm trusted publishing (OIDC), with SLSA provenance and an npm publish attestation, so every published version can be traced back to the commit and workflow that built it.
 
 ## API Rate Limits
 
