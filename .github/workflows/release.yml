@@ -18,11 +18,23 @@
 # Provenance needs no secret either - it uses the same OIDC token
 # (id-token: write) and requires this repository to be public, which it is.
 #
-# Release flow:
-#   1. Bump "version" in package.json (commit to main)
-#   2. git tag vX.Y.Z && git push origin vX.Y.Z
-#   3. This workflow lints, builds, verifies the tag matches package.json, and
+# Release flow. This is the same procedure, in the same order, as the "n8n"
+# section of tallyfy/middleware docs/PUBLISHING-RUNBOOK.md. Keep the two in
+# step: they drifted apart once, this header omitted the CHANGELOG entry, and
+# three releases (1.1.0, 1.1.1, 1.1.2) then shipped without one, because the
+# step that only one document mentioned is the step that stopped happening
+# (tallyfy/n8n#18).
+#
+#   1. Land the change on main.
+#   2. Build and lint, both green.
+#   3. Bump "version" in package.json AND add a CHANGELOG.md entry for it,
+#      as "## [X.Y.Z] - YYYY-MM-DD". Step 5 below now fails without it.
+#   4. Commit that to main.
+#   5. git tag vX.Y.Z && git push origin vX.Y.Z
+#      This workflow then verifies CHANGELOG.md has a heading for the tag,
+#      lints, builds, tests, verifies the tag matches package.json, and
 #      publishes with --provenance.
+#   6. Live check: update the community package on the answers-n8n droplet.
 
 name: Release
 
@@ -40,6 +52,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Stops a release with no CHANGELOG entry, which is what happened to 1.1.0, 1.1.1 and
+      # 1.1.2 (tallyfy/n8n#18).
+      #
+      # It runs first, before npm ci, on purpose. It needs nothing but the checkout, so failing
+      # here costs seconds rather than the several minutes of install, lint, build and test that
+      # would otherwise run before anyone learns the release is malformed. Placing it after the
+      # Test step would also make it unreachable as a failure: the suite already asserts that the
+      # version in package.json has a heading, and the next step asserts the tag equals that
+      # version, so the two together imply this one. Running it up front keeps it an independent
+      # check that still fires if the suite is ever changed.
+      #
+      # The logic lives in a script rather than inline because a workflow step can only be
+      # exercised by pushing a v* tag, and a tag push here publishes to npm immediately and
+      # irreversibly, so an inline gate could never be tested before it was relied on. The script
+      # is exercised offline by test/scripts/check-changelog.test.ts.
+      - name: Verify CHANGELOG has an entry for this tag
+        run: scripts/check-changelog.sh "${GITHUB_REF_NAME#v}"
 
       - uses: actions/setup-node@v4
         with:
