@@ -31,9 +31,9 @@
 #      as "## [X.Y.Z] - YYYY-MM-DD". Step 5 below now fails without it.
 #   4. Commit that to main.
 #   5. git tag vX.Y.Z && git push origin vX.Y.Z
-#      This workflow then lints, builds, tests, verifies the tag matches
-#      package.json, verifies CHANGELOG.md has a heading for it, and publishes
-#      with --provenance.
+#      This workflow then verifies CHANGELOG.md has a heading for the tag,
+#      lints, builds, tests, verifies the tag matches package.json, and
+#      publishes with --provenance.
 #   6. Live check: update the community package on the answers-n8n droplet.
 
 name: Release
@@ -52,6 +52,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Stops a release with no CHANGELOG entry, which is what happened to 1.1.0, 1.1.1 and
+      # 1.1.2 (tallyfy/n8n#18).
+      #
+      # It runs first, before npm ci, on purpose. It needs nothing but the checkout, so failing
+      # here costs seconds rather than the several minutes of install, lint, build and test that
+      # would otherwise run before anyone learns the release is malformed. Placing it after the
+      # Test step would also make it unreachable as a failure: the suite already asserts that the
+      # version in package.json has a heading, and the next step asserts the tag equals that
+      # version, so the two together imply this one. Running it up front keeps it an independent
+      # check that still fires if the suite is ever changed.
+      #
+      # The logic lives in a script rather than inline because a workflow step can only be
+      # exercised by pushing a v* tag, and a tag push here publishes to npm immediately and
+      # irreversibly, so an inline gate could never be tested before it was relied on. The script
+      # is exercised offline by test/scripts/check-changelog.test.ts.
+      - name: Verify CHANGELOG has an entry for this tag
+        run: scripts/check-changelog.sh "${GITHUB_REF_NAME#v}"
 
       - uses: actions/setup-node@v4
         with:
@@ -88,15 +106,6 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION" >&2
             exit 1
           fi
-
-      # Stops a release with no CHANGELOG entry, which is what happened to 1.1.0, 1.1.1 and
-      # 1.1.2 (tallyfy/n8n#18). The logic lives in a script rather than inline here for one
-      # reason: a workflow step can only be exercised by pushing a v* tag, and a tag push
-      # publishes to npm immediately and irreversibly, so an inline gate could never be tested
-      # before it was relied on. The script is exercised offline by test/scripts/
-      # check-changelog.test.ts, which the Test step above already runs.
-      - name: Verify CHANGELOG has an entry for this tag
-        run: scripts/check-changelog.sh "${GITHUB_REF_NAME#v}"
 
       # Authentication is npm trusted publishing (OIDC): the runner exchanges the id-token
       # granted above for a short-lived npm credential. There is deliberately NO NODE_AUTH_TOKEN

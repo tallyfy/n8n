@@ -55,9 +55,10 @@ describe('scripts/check-changelog.sh', () => {
 		return file;
 	}
 
+	// release.yml invokes the script directly, so a lost executable bit breaks the release and
+	// nothing else would notice.
 	it('is executable', () => {
-		// eslint-disable-next-line no-bitwise
-		expect(fs.statSync(SCRIPT).mode & 0o111).not.toBe(0);
+		expect(() => fs.accessSync(SCRIPT, fs.constants.X_OK)).not.toThrow();
 	});
 
 	// The regression lock. This goes red the moment package.json is bumped without a CHANGELOG
