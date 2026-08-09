@@ -611,10 +611,25 @@ d('Tallyfy live API', () => {
 		// `CaptureValue::find($id)->capture` with no null-guard, and FormFieldService::updateValue()
 		// has no create-if-missing, so a run-level field with no stored CaptureValue yet returns
 		// HTTP 500 "Attempt to read property `capture` on null". This asserts that CURRENT behavior.
-		// When api-v2 #9 ships (null-guard + create-or-update, mirroring the guest storeOrUpdateFields
-		// path) this call will SUCCEED and this test will go RED - flip it then to a stored-value
-		// round-trip: read back GET /runs/{runId}/form-fields and assert the value persisted.
-		it('run-level updateValue is rejected by the current api-v2 precondition (api-v2 #9 tripwire)', async () => {
+		//
+		// The server-side gap is tallyfy/api-v2 issue #5010, PR #8955. Both were still open on
+		// 2026-08-09. There is no node work outstanding here: the request shape is correct and is
+		// asserted per field type in the mocked suite.
+		//
+		// THIS TEST GOING RED IS THE SIGNAL, NOT A REGRESSION. It goes red on two different events
+		// and they need different responses, so read which one happened before touching it:
+		//
+		//   1. api-v2 PR #8955 lands. It converts the 500 into a 422 with proper validation, and
+		//      the message stops containing "capture", so the assertion below stops matching. The
+		//      operation STILL DOES NOT WORK. Re-point the assertion at the new 422 and keep the
+		//      test red-on-success. Do NOT relax it to "rejects with anything", which would make
+		//      the tripwire unable to notice event 2.
+		//   2. A real create-or-update fix lands, mirroring the guest storeOrUpdateFields path.
+		//      Then this call SUCCEEDS. Flip the test to a stored-value round-trip: read back
+		//      GET /runs/{runId}/form-fields and assert the value persisted.
+		//
+		// In neither case is the right move to delete or skip this test.
+		it('run-level updateValue is rejected by the current api-v2 precondition (api-v2 #5010 tripwire)', async () => {
 			expect(runFieldId).toBeTruthy();
 			await expect(
 				runLive({
