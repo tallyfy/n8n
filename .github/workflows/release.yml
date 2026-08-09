@@ -18,11 +18,23 @@
 # Provenance needs no secret either - it uses the same OIDC token
 # (id-token: write) and requires this repository to be public, which it is.
 #
-# Release flow:
-#   1. Bump "version" in package.json (commit to main)
-#   2. git tag vX.Y.Z && git push origin vX.Y.Z
-#   3. This workflow lints, builds, verifies the tag matches package.json, and
-#      publishes with --provenance.
+# Release flow. This is the same procedure, in the same order, as the "n8n"
+# section of tallyfy/middleware docs/PUBLISHING-RUNBOOK.md. Keep the two in
+# step: they drifted apart once, this header omitted the CHANGELOG entry, and
+# three releases (1.1.0, 1.1.1, 1.1.2) then shipped without one, because the
+# step that only one document mentioned is the step that stopped happening
+# (tallyfy/n8n#18).
+#
+#   1. Land the change on main.
+#   2. Build and lint, both green.
+#   3. Bump "version" in package.json AND add a CHANGELOG.md entry for it,
+#      as "## [X.Y.Z] - YYYY-MM-DD". Step 5 below now fails without it.
+#   4. Commit that to main.
+#   5. git tag vX.Y.Z && git push origin vX.Y.Z
+#      This workflow then lints, builds, tests, verifies the tag matches
+#      package.json, verifies CHANGELOG.md has a heading for it, and publishes
+#      with --provenance.
+#   6. Live check: update the community package on the answers-n8n droplet.
 
 name: Release
 
@@ -76,6 +88,15 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION" >&2
             exit 1
           fi
+
+      # Stops a release with no CHANGELOG entry, which is what happened to 1.1.0, 1.1.1 and
+      # 1.1.2 (tallyfy/n8n#18). The logic lives in a script rather than inline here for one
+      # reason: a workflow step can only be exercised by pushing a v* tag, and a tag push
+      # publishes to npm immediately and irreversibly, so an inline gate could never be tested
+      # before it was relied on. The script is exercised offline by test/scripts/
+      # check-changelog.test.ts, which the Test step above already runs.
+      - name: Verify CHANGELOG has an entry for this tag
+        run: scripts/check-changelog.sh "${GITHUB_REF_NAME#v}"
 
       # Authentication is npm trusted publishing (OIDC): the runner exchanges the id-token
       # granted above for a short-lived npm credential. There is deliberately NO NODE_AUTH_TOKEN
