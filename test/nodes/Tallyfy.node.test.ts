@@ -214,6 +214,63 @@ describe('Tallyfy node - request building', () => {
 				},
 			});
 		});
+
+		// #178 RADIO parity. Radio used to fall through to `return rawValue`, so a case- or
+		// space-different value reached api-v2 verbatim and was rejected, while the same input
+		// succeeded through the Tallyfy CLI, the MCP server and Celigo.
+		//
+		// This asserts the actual launch POST body, so it fails if the encoding regresses for
+		// any reason rather than merely checking that a branch exists. Revert the radio branch
+		// in Tallyfy.node.ts and this goes red; the surrounding cases stay green.
+		it('matches a radio option differing only by case or whitespace (#178) and sends bare canonical text', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Lenient radio',
+					kickoffValues: {
+						values: [
+							{ field: 'tier', value: '  paid ' }, // case + whitespace -> canonical 'Paid'
+						],
+					},
+					additionalFields: {},
+				},
+				[templateResp, { data: { id: 'RUN3' } }],
+			);
+
+			const launchReq = requestAt(httpMock, 1);
+			// Radio is a BARE string, not the {id,text} pair dropdown uses.
+			expect(launchReq.body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Lenient radio',
+				prerun: { F_RD: 'Paid' },
+			});
+		});
+
+		it('passes an unmatched radio value through without throwing, unlike dropdown (#178)', async () => {
+			// Deliberate asymmetry: no implementation of this encoder throws on an unmatched
+			// radio value, so throwing here would invent a seventh behaviour. api-v2 remains
+			// the backstop, exactly as before this change.
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Unmatched radio',
+					kickoffValues: { values: [{ field: 'tier', value: 'Enterprise' }] },
+					additionalFields: {},
+				},
+				[templateResp, { data: { id: 'RUN4' } }],
+			);
+
+			const launchReq = requestAt(httpMock, 1);
+			expect(launchReq.body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Unmatched radio',
+				prerun: { F_RD: 'Enterprise' },
+			});
+		});
 	});
 
 	describe('Task: Complete', () => {
