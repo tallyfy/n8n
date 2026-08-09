@@ -2803,7 +2803,31 @@ export class Tallyfy implements INodeType {
 					return { id: opt.id, text: opt.text, selected: true };
 				});
 			}
-			// radio -> bare option text; text / textarea / email / date / number -> scalar as-is.
+			if (fieldType === 'radio') {
+				// #178 radio parity. This used to fall through to `return rawValue`, so a value
+				// differing from an option only by letter case or surrounding whitespace was sent
+				// verbatim and api-v2 rejected it, while the same input succeeded through the
+				// Tallyfy CLI, the MCP server and Celigo. That split is the inconsistency #178
+				// exists to remove.
+				//
+				// Deliberately NOT a throw, unlike the dropdown and multiselect branches above.
+				// No implementation of this encoder throws on an unmatched radio value, so adding
+				// one here would invent a seventh behaviour instead of converging on the existing
+				// one. The shape is Celigo's: the option's canonical text on a match, the raw
+				// value untouched otherwise, which leaves the api-v2 rejection path exactly as it
+				// was. Radio is a bare scalar, not the {id,text} pair dropdown uses.
+				if (rawValue === null || rawValue === undefined || rawValue === '') {
+					return rawValue;
+				}
+				let opt = options.find(
+					o => String(o.text) === String(rawValue) || String(o.id) === String(rawValue),
+				);
+				if (!opt) {
+					opt = options.find(o => canonicalChoiceEq(o.text, rawValue));
+				}
+				return opt ? opt.text : rawValue;
+			}
+			// text / textarea / email / date / number -> scalar as-is.
 			return rawValue;
 		};
 
