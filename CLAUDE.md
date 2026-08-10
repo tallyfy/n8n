@@ -80,12 +80,23 @@ published by CI** rather than by hand, via npm trusted publishing (OIDC) with SL
   Do not run `npm publish` by hand. Check the changelog half locally before tagging, since a tag push
   is irreversible: `scripts/check-changelog.sh <version>` exits 0 when the entry exists, 1 when it
   does not, 2 when it was called wrongly.
-- ⚠️ **`main` currently carries an UNRELEASED user-facing fix.** `d2224ba` (PR #13, issue #12) changes
-  a bare "409 - Conflict" into a message naming the seat pool that is actually full, and touches
-  `nodes/Tallyfy/Tallyfy.node.ts` by 132 lines. `package.json` still reads `1.1.2`, which is already
-  on npm, so nobody has it. Tracked as **#21**. Re-derive rather than trusting this line:
-  `git log v1.1.2..origin/main` and compare `node -p "require('./package.json').version"` against
-  `npm view n8n-nodes-tallyfy version`.
+- ⚠️ **`main` declares `1.1.3` and it is NOT published. npm `latest` is still `1.1.2`.** Updated
+  2026-08-10 (#24, PR #25): the version and its `CHANGELOG.md` entry landed, and the tag was
+  deliberately **not** pushed. So the version on `main` is not the version anyone is running, and
+  a `package.json` read is not an answer to "what do users have".
+
+  `1.1.3` carries two merged user-facing fixes: `d2224ba` (PR #13, issue #12), the
+  `SEAT_POOL_EXHAUSTED` message naming the pool that is actually full, and `dd426b5` (PR #23, issue
+  #22), lenient `radio` kick-off matching. Only the second can reach a customer today — api-v2 does
+  not emit the 409 shape until `allocated_seats_model_active` is flipped (`api-v2#9143`, open).
+
+  **To release it: `git tag v1.1.3 && git push origin v1.1.3`.** That is the whole of what is left
+  on **#21**, and it is irreversible. The 2026-08-09 decision was wait-and-batch, resuming when
+  either `api-v2#9143` flips or the droplet install (#14) is scheduled; neither had fired when this
+  was written.
+
+  Re-derive rather than trusting this line: `git log v1.1.2..origin/main`, and compare
+  `node -p "require('./package.json').version"` against `npm view n8n-nodes-tallyfy version`.
 - ⚠️ **Two traps, both measured rather than theorised.** (1) `actions/setup-node` must NOT set
   `registry-url` here. With it, setup-node writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
   into a temp `.npmrc`; with no token that expands to empty, npm treats auth as configured, **skips
