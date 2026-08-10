@@ -28,6 +28,42 @@ No `v1.1.1` tag will be created. Pushing a `v*` tag is this repo's publish trigg
 historical commit would fire the release workflow against an old tree, and even a failed run signs
 a permanent public provenance statement into the sigstore transparency log.
 
+## [1.1.3] - 2026-08-10
+
+Prepared but **not yet published**. `package.json` declares 1.1.3 and npm `latest` is still 1.1.2;
+the release happens when `v1.1.3` is tagged and pushed, which is a deliberate separate step.
+Covers `c21d7e6..dd426b5`. Two user-facing fixes that were merged and sitting unpublished on
+`main`, plus the gate that stops that recurring.
+
+### Fixed
+- A seat-limit refusal now explains itself. When api-v2 answers `409 SEAT_POOL_EXHAUSTED`, the node
+  surfaces a sentence naming the pool that is actually full and what an admin can do about it,
+  instead of a bare "409 - Conflict". (`d2224ba`, #12 via PR #13)
+
+  The wording is byte-identical to the Zapier and Workato connectors, so one customer reaching
+  Tallyfy through two tools does not get two descriptions of the same billing state. Re-verified
+  2026-08-10 by executing `tallyfy/middleware`'s `seatPoolExhaustedMessage` and substituting into
+  the template literal read straight out of `Tallyfy.node.ts`, across four payload shapes (both
+  fields present, `pool_type` missing, `message` missing, both missing): all four SHA-256 identical,
+  with a negative control confirming the comparison could report a difference.
+
+  ⚠️ **Not reachable in production yet.** api-v2 does not emit this shape until
+  `allocated_seats_model_active` is flipped (tallyfy/api-v2#9143, still open), so this message
+  cannot fire for a customer today. It ships now so it is in place when that lands.
+- Kick-off `radio` values now match a template option when they differ only by letter case or
+  surrounding whitespace, and the option's canonical text is sent. Dropdown and multi-select have
+  behaved this way since 1.1.2; radio was still comparing literally, so a case-different radio
+  value was rejected here while the CLI, MCP and Celigo accepted it. This one **does** affect users
+  today. (`dd426b5`, #22 via PR #23)
+
+### Changed
+- The release workflow fails when the tag being pushed has no matching CHANGELOG heading, and
+  `npm test` fails the same way as soon as `package.json` is bumped without one. 1.1.0, 1.1.1 and
+  1.1.2 all shipped unrecorded because the step appeared in only one of the two publishing
+  procedures, and nothing enforced either. (`aa343a8`, #19 via PR #20)
+- The `formField:updateValue` live tripwire now says what its red run means, so a deliberate signal
+  is not mistaken for a regression. (`a26e3b2`)
+
 ## [1.1.2] - 2026-08-08
 
 First release published by CI, via npm trusted publishing (OIDC) with SLSA provenance. Covers
