@@ -10,7 +10,7 @@ since 2026-08-08; installed via `npm install n8n-nodes-tallyfy`). **1.1.2 is the
 published by CI** rather than by hand, via npm trusted publishing (OIDC) with SLSA provenance.
 
 > ✅ **RELEASED in v1.1.2 on 2026-08-08.** This block said "Unreleased on `main`" from 2026-07-28
-> until then. `47c0225` (**#178** lenient kick-off choice match: `encodeKickoffValue` matches a
+> until then. `47c0225` (**`tallyfy/middleware#178`**, still OPEN - lenient kick-off choice match: `encodeKickoffValue` matches a
 > dropdown or multi-select template option differing only by letter case or surrounding whitespace,
 > then sends the option's own canonical text via a `canonicalChoiceEq` fallback before the fail-loud
 > throw; parity with Zapier/Workato/Celigo/CLI/MCP) and `6d8dfcd` (**#9** formField `updateValue`

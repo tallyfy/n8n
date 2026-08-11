@@ -8,9 +8,12 @@
 # id-token below for a short-lived npm credential, and no long-lived token is
 # stored anywhere.
 #
-# This replaced an NPM_TOKEN repository secret, which is why that secret may
-# still exist. It is no longer read by this workflow and can be deleted. The
-# old arrangement could not publish anyway: a token publish is refused unless
+# This replaced an NPM_TOKEN repository secret. That secret was DELETED on
+# 2026-08-08 and this repo now has zero secrets (`gh api
+# repos/tallyfy/n8n/actions/secrets` -> total_count: 0). Nothing here reads it.
+# (This comment said the secret "may still exist ... and can be deleted" until
+# 2026-08-11, a day after it was already gone.) The old arrangement could not
+# publish anyway: a token publish is refused unless
 # the token is a granular access token with 2FA bypass, and npm removes direct
 # publishing from those around Jan 2027, so a replacement token would have been
 # obsolete within months.
@@ -114,8 +117,14 @@ jobs:
       # been a short-lived fix. Provenance is generated because tallyfy/n8n is a PUBLIC repo;
       # npm does not generate it for packages published from private repositories.
       #
-      # This step CANNOT work until the trusted publisher is registered on npmjs.com for
-      # n8n-nodes-tallyfy: Settings -> Trusted publishers -> GitHub Actions, with
-      # organization `tallyfy`, repository `n8n`, workflow filename `release.yml`.
+      # The trusted publisher IS registered and this path WORKS: 1.1.2 was published
+      # through it on 2026-08-08 and carries 2 attestations (npm publish + SLSA v1).
+      # Registration is org `tallyfy`, repo `n8n`, workflow `release.yml`, under
+      # npmjs.com Settings -> Trusted publishers -> GitHub Actions.
+      #
+      # ⚠️ This comment read "This step CANNOT work until the trusted publisher is
+      # registered" until 2026-08-11, three days after it started working. It sat in
+      # the last file a releaser reads before an irreversible tag push, where it looks
+      # like an unmet setup gate - which is the direction that stops a valid release.
       - name: Publish to npm with provenance
         run: npm publish --provenance --access public
