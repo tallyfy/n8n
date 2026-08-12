@@ -55,6 +55,12 @@ Covers `c21d7e6..dd426b5`. Two user-facing fixes that were merged and sitting un
   behaved this way since 1.1.2; radio was still comparing literally, so a case-different radio
   value was rejected here while the CLI, MCP and Celigo accepted it. This one **does** affect users
   today. (`dd426b5`, #22 via PR #23)
+- Kick-off `dropdown` and `multi-select` values now also accept an option's **ID**, not only its
+  text, as `radio` already did. Passing `2` where the template's option is named "Gold" used to
+  resolve for radio and throw for dropdown, so the same id gave two different answers depending on
+  the field type. The option's own canonical value is still what gets sent, and a value matching
+  neither an option text nor an id still throws. This one **does** affect users today.
+  (`5f8eaec`, #26 via PR #27)
 
 ### Changed
 - The release workflow fails when the tag being pushed has no matching CHANGELOG heading, and
