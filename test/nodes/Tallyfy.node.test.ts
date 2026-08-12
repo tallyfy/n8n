@@ -271,6 +271,66 @@ describe('Tallyfy node - request building', () => {
 				prerun: { F_RD: 'Enterprise' },
 			});
 		});
+
+		// #178 OPTION-ID parity. The radio fix above landed with an option-id arm and the
+		// dropdown/multiselect branches did not get one, so this node accepted an option id
+		// for radio and THREW for dropdown: one caller, one template, one id, two answers
+		// depending on the field type. Celigo and the MCP server have accepted ids on all
+		// three types all along. Owner decision 2026-08-12: converge UP. The same change
+		// landed in tallyfy/middleware for Zapier and Workato.
+		//
+		// This asserts the OBSERVABLE launch body, so it goes red if the encoding regresses
+		// for any reason, not merely if a particular branch is edited.
+		it('resolves an option ID on dropdown and multiselect, not only radio (#178)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Ids everywhere',
+					kickoffValues: {
+						values: [
+							{ field: 'plan', value: '2' }, // dropdown by option id -> Gold
+							{ field: 'addons', value: '1, 3' }, // multiselect by option ids -> SSO, SLA
+							{ field: 'tier', value: '2' }, // radio by option id -> Paid (already worked)
+						],
+					},
+					additionalFields: {},
+				},
+				[templateResp, { data: { id: 'RUN5' } }],
+			);
+
+			const launchReq = requestAt(httpMock, 1);
+			expect(launchReq.body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Ids everywhere',
+				prerun: {
+					F_DD: { id: 2, text: 'Gold' },
+					F_MS: [
+						{ id: 1, text: 'SSO', selected: true },
+						{ id: 3, text: 'SLA', selected: true },
+					],
+					F_RD: 'Paid',
+				},
+			});
+		});
+
+		// Scope guard: the id arm must not weaken the #177 fail-loud guarantee.
+		it('still fails loudly when a value matches neither an option text nor an id (#178)', async () => {
+			await expect(
+				run(
+					{
+						resource: 'process',
+						operation: 'launch',
+						blueprintId: 'BP1',
+						processName: 'Bad id',
+						kickoffValues: { values: [{ field: 'plan', value: '999' }] },
+						additionalFields: {},
+					},
+					[templateResp, { data: { id: 'RUN6' } }],
+				),
+			).rejects.toThrow(/no dropdown option matches/);
+		});
 	});
 
 	describe('Task: Complete', () => {

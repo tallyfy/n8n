@@ -2778,9 +2778,20 @@ export class Tallyfy implements INodeType {
 			const label = (field.label as string) || (field.id as string);
 			if (fieldType === 'dropdown') {
 				const text = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
-				// Exact match first, then a lenient case-insensitive + trimmed fallback (#178);
-				// either way the option's own canonical text is sent, never the raw input.
-				let opt = options.find(o => o.text === text);
+				// Exact match on canonical text OR id, then a lenient case-insensitive + trimmed
+				// fallback (#178); either way the option's own canonical text is sent, never the
+				// raw input.
+				//
+				// The id arm was added to the `radio` branch below when radio parity landed and NOT
+				// here, which left this node internally inconsistent: an option id resolved for
+				// radio and THREW for dropdown, so one caller passing one id to one template got
+				// two different answers depending on the field type. Celigo's findOption and the
+				// MCP server's _match_option have accepted ids on all three types all along.
+				// Converging up rather than down was an explicit owner decision on 2026-08-12,
+				// applied to Zapier and Workato in tallyfy/middleware in the same breath.
+				let opt = options.find(
+					o => String(o.text) === String(text) || String(o.id) === String(rawValue),
+				);
 				if (!opt) {
 					opt = options.find(o => canonicalChoiceEq(o.text, rawValue));
 				}
@@ -2791,8 +2802,11 @@ export class Tallyfy implements INodeType {
 			}
 			if (fieldType === 'multiselect') {
 				return splitList(String(rawValue ?? '')).map(text => {
-					// Exact match first, then the same lenient case-insensitive + trimmed fallback (#178).
-					let opt = options.find(o => o.text === text);
+					// Exact match on canonical text OR id, then the same lenient case-insensitive +
+					// trimmed fallback (#178) — same reasoning as the dropdown branch above.
+					let opt = options.find(
+						o => String(o.text) === String(text) || String(o.id) === String(text),
+					);
 					if (!opt) {
 						opt = options.find(o => canonicalChoiceEq(o.text, text));
 					}
