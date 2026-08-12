@@ -85,10 +85,19 @@ published by CI** rather than by hand, via npm trusted publishing (OIDC) with SL
   deliberately **not** pushed. So the version on `main` is not the version anyone is running, and
   a `package.json` read is not an answer to "what do users have".
 
-  `1.1.3` carries two merged user-facing fixes: `d2224ba` (PR #13, issue #12), the
-  `SEAT_POOL_EXHAUSTED` message naming the pool that is actually full, and `dd426b5` (PR #23, issue
-  #22), lenient `radio` kick-off matching. Only the second can reach a customer today — api-v2 does
-  not emit the 409 shape until `allocated_seats_model_active` is flipped (`api-v2#9143`, open).
+  `1.1.3` carries **three** merged user-facing fixes: `d2224ba` (PR #13, issue #12), the
+  `SEAT_POOL_EXHAUSTED` message naming the pool that is actually full; `dd426b5` (PR #23, issue
+  #22), lenient `radio` kick-off matching; and `dd976e8e` (PR #27, issue #26, 2026-08-12),
+  `encodeKickoffValue` accepting an option **ID** on dropdown and multiselect as radio already did.
+  **Two of the three can reach a customer today** — api-v2 does not emit the 409 shape until
+  `allocated_seats_model_active` is flipped (`api-v2#9143`, open), but both kick-off matching fixes
+  are live behaviour the moment 1.1.3 is published.
+
+  ⚠️ **This bullet said "two" until 2026-08-12, one commit after the third landed.** The count is a
+  literal enumeration in prose and nothing tests it, so it goes stale the next time anything merges
+  to `main` unpublished. **Derive it instead:** `git log v1.1.2..origin/main --oneline`, and read
+  `CHANGELOG.md`'s `## [1.1.3]` section, which is the entry `scripts/check-changelog.sh` actually
+  gates on.
 
   **To release it: `git tag v1.1.3 && git push origin v1.1.3`.** That is the whole of what is left
   on **#21**, and it is irreversible. The 2026-08-09 decision was wait-and-batch, resuming when
