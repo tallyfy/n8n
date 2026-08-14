@@ -315,6 +315,152 @@ describe('Tallyfy node - request building', () => {
 			});
 		});
 
+		// tallyfy/middleware#240 AMBIGUOUS CHOICE PRECEDENCE.
+		//
+		// When one option's ID equals a DIFFERENT option's TEXT, the value is ambiguous. The old
+		// encoder put the text arm and the id arm inside ONE Array.prototype.find, which evaluates
+		// both arms against option A before it ever looks at option B, so OPTION ORDER decided the
+		// winner and nothing said so. api-v2 accepts either encoding - its FormValuesValidator
+		// cross-checks id against text and both pairs are internally consistent - so the caller
+		// silently got the wrong option with no error raised anywhere.
+		//
+		// Owner decision 2026-08-14 on tallyfy/middleware#240, taken across all six connectors: run
+		// a complete exact-TEXT pass over the whole option list, then a case-insensitive text pass,
+		// and only then the ID pass. Rejecting the ambiguity outright was considered and rejected
+		// as a behaviour regression, as was keeping first-match-wins.
+		//
+		// The set below is the issue's own: option 1 is {id: 9, text: 'Gold'} and option 2 is
+		// {id: 1, text: '9'}, so the bare value '9' is BOTH option 1's id and option 2's text.
+		// Under the old order it resolved to Gold; under the decided rule it resolves to the
+		// option that literally reads '9'.
+		//
+		// Each of the three tests asserts the ENCODED launch body for ONE field type, so merging
+		// any single branch's passes back together fails that branch's own distinct assertion and
+		// leaves the other two green.
+		const collidingTemplateResp = {
+			data: {
+				prerun: [
+					{
+						id: 'F_DD',
+						alias: 'plan',
+						label: 'Plan',
+						field_type: 'dropdown',
+						options: [
+							{ id: 9, text: 'Gold' },
+							{ id: 1, text: '9' },
+						],
+					},
+					{
+						id: 'F_MS',
+						alias: 'addons',
+						label: 'Addons',
+						field_type: 'multiselect',
+						options: [
+							{ id: 9, text: 'Gold' },
+							{ id: 1, text: '9' },
+						],
+					},
+					{
+						id: 'F_RD',
+						alias: 'tier',
+						label: 'Tier',
+						field_type: 'radio',
+						options: [
+							{ id: 9, text: 'Gold' },
+							{ id: 1, text: '9' },
+						],
+					},
+				],
+			},
+		};
+
+		it('prefers a DROPDOWN option matched by text over one matched by id when both exist (#240)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Ambiguous dropdown',
+					kickoffValues: { values: [{ field: 'plan', value: '9' }] },
+					additionalFields: {},
+				},
+				[collidingTemplateResp, { data: { id: 'RUN7' } }],
+			);
+
+			// Text wins: the option whose TEXT is '9', not the option whose ID is 9.
+			// Before this change the body read { id: 9, text: 'Gold' }, chosen by list order alone.
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Ambiguous dropdown',
+				prerun: { F_DD: { id: 1, text: '9' } },
+			});
+		});
+
+		it('prefers a MULTISELECT option matched by text over one matched by id when both exist (#240)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Ambiguous multiselect',
+					kickoffValues: { values: [{ field: 'addons', value: '9' }] },
+					additionalFields: {},
+				},
+				[collidingTemplateResp, { data: { id: 'RUN8' } }],
+			);
+
+			// Before this change: [{ id: 9, text: 'Gold', selected: true }].
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Ambiguous multiselect',
+				prerun: { F_MS: [{ id: 1, text: '9', selected: true }] },
+			});
+		});
+
+		it('prefers a RADIO option matched by text over one matched by id when both exist (#240)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Ambiguous radio',
+					kickoffValues: { values: [{ field: 'tier', value: '9' }] },
+					additionalFields: {},
+				},
+				[collidingTemplateResp, { data: { id: 'RUN9' } }],
+			);
+
+			// Radio stays a BARE string, not the {id,text} pair. Before this change it read 'Gold'.
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Ambiguous radio',
+				prerun: { F_RD: '9' },
+			});
+		});
+
+		// The radio exception is untouched by #240, which reorders radio's passes and changes
+		// nothing else about it. No implementation of this encoder throws on an unmatched radio
+		// value, so adding one would invent a seventh behaviour rather than converging on six.
+		it('still passes an unmatched radio value through without throwing, after the #240 reorder', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Still lenient radio',
+					kickoffValues: { values: [{ field: 'tier', value: 'Platinum' }] },
+					additionalFields: {},
+				},
+				[collidingTemplateResp, { data: { id: 'RUN10' } }],
+			);
+
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Still lenient radio',
+				prerun: { F_RD: 'Platinum' },
+			});
+		});
+
 		// Scope guard: the id arm must not weaken the #177 fail-loud guarantee.
 		it('still fails loudly when a value matches neither an option text nor an id (#178)', async () => {
 			await expect(

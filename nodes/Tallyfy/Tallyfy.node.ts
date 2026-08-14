@@ -2767,6 +2767,46 @@ export class Tallyfy implements INodeType {
 		const canonicalChoiceEq = (optionText: unknown, rawValue: unknown): boolean =>
 			String(optionText ?? '').trim().toLowerCase() === String(rawValue ?? '').trim().toLowerCase();
 
+		// Resolve a caller's choice value to one template option, one PASS AT A TIME, each pass
+		// running over the WHOLE option list before the next begins (tallyfy/middleware#240):
+		//
+		//   1. exact text
+		//   2. case-insensitive + trimmed text (canonicalChoiceEq, #178)
+		//   3. option id
+		//
+		// The pass separation is the whole point. All three arms used to sit inside ONE
+		// Array.prototype.find, which evaluates every arm against option A before it looks at
+		// option B, so when one option's id equalled another option's text the winner was decided
+		// by OPTION ORDER and nothing said so. Options [{id: 9, text: 'Gold'}, {id: 1, text: '9'}]
+		// with the value '9' resolved to Gold purely because Gold is listed first; api-v2 accepts
+		// either encoding, so the caller got the wrong option silently.
+		//
+		// Owner decision on tallyfy/middleware#240 (2026-08-14), taken across all six connectors:
+		// prefer text over id, rather than rejecting the ambiguity (a behaviour regression for
+		// callers relying on today's silent pick) or keeping first-match-wins.
+		//
+		// Passes 1 and 2 are UNCHANGED IN CONTENT; only their scope widens from "first match in a
+		// mixed scan" to "first match in a text-only scan". So every value that matched exactly one
+		// option before still resolves to that same option.
+		//
+		// textValue and idValue are separate parameters because the three branches below feed the
+		// text and id arms differently today, and those differences are preserved rather than
+		// quietly normalised - see each call site.
+		const resolveChoiceOption = (
+			options: IDataObject[],
+			textValue: unknown,
+			idValue: unknown,
+		): IDataObject | undefined => {
+			let opt = options.find(o => String(o.text) === String(textValue));
+			if (!opt) {
+				opt = options.find(o => canonicalChoiceEq(o.text, textValue));
+			}
+			if (!opt) {
+				opt = options.find(o => String(o.id) === String(idValue));
+			}
+			return opt;
+		};
+
 		// Encode a Kick-off (prerun) value for the launch `prerun` object, per the field's type.
 		// Mirrors middleware lib/tallyfy.js processFieldValue: choice fields resolve the option by
 		// its TEXT and send the structured shape the API stores; scalars pass through. The API
@@ -2778,9 +2818,8 @@ export class Tallyfy implements INodeType {
 			const label = (field.label as string) || (field.id as string);
 			if (fieldType === 'dropdown') {
 				const text = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
-				// Exact match on canonical text OR id, then a lenient case-insensitive + trimmed
-				// fallback (#178); either way the option's own canonical text is sent, never the
-				// raw input.
+				// Text passes first over the whole option list, then the id pass (#240); either way
+				// the option's own canonical text is sent, never the raw input.
 				//
 				// The id arm was added to the `radio` branch below when radio parity landed and NOT
 				// here, which left this node internally inconsistent: an option id resolved for
@@ -2789,12 +2828,13 @@ export class Tallyfy implements INodeType {
 				// MCP server's _match_option have accepted ids on all three types all along.
 				// Converging up rather than down was an explicit owner decision on 2026-08-12,
 				// applied to Zapier and Workato in tallyfy/middleware in the same breath.
-				let opt = options.find(
-					o => String(o.text) === String(text) || String(o.id) === String(rawValue),
-				);
-				if (!opt) {
-					opt = options.find(o => canonicalChoiceEq(o.text, rawValue));
-				}
+				//
+				// The text arms get the TRIMMED value and the id arm the UNTRIMMED one. That
+				// asymmetry predates #240 and is kept deliberately, so " 2 " still throws here
+				// exactly as it did before, rather than newly resolving to option id 2. Widening
+				// the id arm would be a behaviour change beyond the decided rule, and it has to be
+				// decided once across all six connectors rather than unilaterally in this one.
+				const opt = resolveChoiceOption(options, text, rawValue);
 				if (!opt) {
 					throw new Error(`Kickoff field "${label}": no dropdown option matches "${String(rawValue)}"`);
 				}
@@ -2802,14 +2842,10 @@ export class Tallyfy implements INodeType {
 			}
 			if (fieldType === 'multiselect') {
 				return splitList(String(rawValue ?? '')).map(text => {
-					// Exact match on canonical text OR id, then the same lenient case-insensitive +
-					// trimmed fallback (#178) — same reasoning as the dropdown branch above.
-					let opt = options.find(
-						o => String(o.text) === String(text) || String(o.id) === String(text),
-					);
-					if (!opt) {
-						opt = options.find(o => canonicalChoiceEq(o.text, text));
-					}
+					// Text passes first over the whole option list, then the id pass (#240) - same
+					// reasoning as the dropdown branch above. splitList has already trimmed each
+					// entry, so both arms see the same trimmed value here.
+					const opt = resolveChoiceOption(options, text, text);
 					if (!opt) {
 						throw new Error(`Kickoff field "${label}": no multiselect option matches "${text}"`);
 					}
@@ -2833,12 +2869,10 @@ export class Tallyfy implements INodeType {
 				if (rawValue === null || rawValue === undefined || rawValue === '') {
 					return rawValue;
 				}
-				let opt = options.find(
-					o => String(o.text) === String(rawValue) || String(o.id) === String(rawValue),
-				);
-				if (!opt) {
-					opt = options.find(o => canonicalChoiceEq(o.text, rawValue));
-				}
+				// Text passes first over the whole option list, then the id pass (#240). This
+				// branch never trimmed either arm and still does not, so " 2 " continues to fall
+				// through to the raw value rather than newly resolving to option id 2.
+				const opt = resolveChoiceOption(options, rawValue, rawValue);
 				return opt ? opt.text : rawValue;
 			}
 			// text / textarea / email / date / number -> scalar as-is.
