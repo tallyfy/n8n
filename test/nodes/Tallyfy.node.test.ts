@@ -461,6 +461,117 @@ describe('Tallyfy node - request building', () => {
 			});
 		});
 
+		// The fixture above pins "id is not FIRST". It cannot pin "id is LAST", because its value
+		// '9' matches an option's text EXACTLY, so pass 1 settles it and passes 2 and 3 never run.
+		// Moving the id pass to sit BETWEEN the two text passes therefore leaves every test above
+		// green - measured, not assumed: the reordered implementation ran 54/54 green.
+		//
+		// So this set exists to discriminate that specific mutation. Its value '2' matches NO
+		// option's text exactly, matches option 2's text only after trim + lowercase (the #178
+		// canonical pass), and equals option 1's id. Under the decided rule - BOTH text passes
+		// before the id pass - it resolves to the option that reads ' 2 '. Under the mutation it
+		// resolves to Silver.
+		//
+		// Whitespace in option text is the real case #178 was filed for, not a contrived one.
+		const canonicalCollidingTemplateResp = {
+			data: {
+				prerun: [
+					{
+						id: 'F_DD2',
+						alias: 'plan2',
+						label: 'Plan2',
+						field_type: 'dropdown',
+						options: [
+							{ id: 2, text: 'Silver' },
+							{ id: 7, text: ' 2 ' },
+						],
+					},
+					{
+						id: 'F_MS2',
+						alias: 'addons2',
+						label: 'Addons2',
+						field_type: 'multiselect',
+						options: [
+							{ id: 2, text: 'Silver' },
+							{ id: 7, text: ' 2 ' },
+						],
+					},
+					{
+						id: 'F_RD2',
+						alias: 'tier2',
+						label: 'Tier2',
+						field_type: 'radio',
+						options: [
+							{ id: 2, text: 'Silver' },
+							{ id: 7, text: ' 2 ' },
+						],
+					},
+				],
+			},
+		};
+
+		it('runs the CANONICAL text pass before the id pass for DROPDOWN, not merely the exact one (#240)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Canonical before id dropdown',
+					kickoffValues: { values: [{ field: 'plan2', value: '2' }] },
+					additionalFields: {},
+				},
+				[canonicalCollidingTemplateResp, { data: { id: 'RUN11' } }],
+			);
+
+			// { id: 2, text: 'Silver' } here would mean the id pass overtook the canonical one.
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Canonical before id dropdown',
+				prerun: { F_DD2: { id: 7, text: ' 2 ' } },
+			});
+		});
+
+		it('runs the CANONICAL text pass before the id pass for MULTISELECT, not merely the exact one (#240)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Canonical before id multiselect',
+					kickoffValues: { values: [{ field: 'addons2', value: '2' }] },
+					additionalFields: {},
+				},
+				[canonicalCollidingTemplateResp, { data: { id: 'RUN12' } }],
+			);
+
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Canonical before id multiselect',
+				prerun: { F_MS2: [{ id: 7, text: ' 2 ', selected: true }] },
+			});
+		});
+
+		it('runs the CANONICAL text pass before the id pass for RADIO, not merely the exact one (#240)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Canonical before id radio',
+					kickoffValues: { values: [{ field: 'tier2', value: '2' }] },
+					additionalFields: {},
+				},
+				[canonicalCollidingTemplateResp, { data: { id: 'RUN13' } }],
+			);
+
+			// Radio sends the option's own text, bare. 'Silver' would mean the id pass overtook.
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Canonical before id radio',
+				prerun: { F_RD2: ' 2 ' },
+			});
+		});
+
 		// Scope guard: the id arm must not weaken the #177 fail-loud guarantee.
 		it('still fails loudly when a value matches neither an option text nor an id (#178)', async () => {
 			await expect(
