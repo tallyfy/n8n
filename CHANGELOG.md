@@ -30,10 +30,16 @@ a permanent public provenance statement into the sigstore transparency log.
 
 ## [1.1.3] - 2026-08-10
 
-Prepared but **not yet published**. `package.json` declares 1.1.3 and npm `latest` is still 1.1.2;
-the release happens when `v1.1.3` is tagged and pushed, which is a deliberate separate step.
-Covers `c21d7e6..dd426b5`. Two user-facing fixes that were merged and sitting unpublished on
-`main`, plus the gate that stops that recurring.
+Prepared but **not yet published**. `package.json` declares 1.1.3 and npm `latest` is still 1.1.2.
+The release happens when `v1.1.3` is tagged and pushed. **Pushing that tag IS the publish**: the
+release workflow authenticates to npm by trusted publishing over OIDC and runs
+`npm publish --provenance`, so there is no separate hand-publish step and no `NPM_TOKEN`.
+Covers `c21d7e6..8169358`, which is `main` as of 2026-08-21. Every entry below was merged and left
+unpublished on `main`, plus the gate that stops that recurring.
+
+Do not restate the number of fixes here. It has now decayed twice: this paragraph said "two" while
+three were listed, was corrected to three in `d68dfe5`, and was wrong again within two days when
+PR #29 landed. Read the list.
 
 ### Fixed
 - A seat-limit refusal now explains itself. When api-v2 answers `409 SEAT_POOL_EXHAUSTED`, the node
@@ -61,6 +67,20 @@ Covers `c21d7e6..dd426b5`. Two user-facing fixes that were merged and sitting un
   the field type. The option's own canonical value is still what gets sent, and a value matching
   neither an option text nor an id still throws. This one **does** affect users today.
   (`5f8eaec`, #26 via PR #27)
+- A kick-off choice whose value matches one option's **text** and a different option's **ID** now
+  resolves to the text match, every time, rather than to whichever of the two the template happened
+  to list first. `encodeKickoffValue` ran its exact-text arm and its option-ID arm inside a single
+  `find`, so both arms were evaluated against option A before option B was considered at all. With
+  options `[{id: 9, text: "Gold"}, {id: 1, text: "9"}]` and the value `"9"`, the node sent Gold.
+
+  This one **does** affect users today, and it is the worst failure mode in this release, because
+  nothing reports it: api-v2 cross-checks id against text, both candidate pairs are internally
+  consistent, so it accepts either encoding and the caller silently gets the wrong option. All three
+  choice branches now run a complete exact-text pass, then a complete case-insensitive trimmed pass,
+  then the ID pass, through one shared `resolveChoiceOption`. Verified by running the old and new
+  encoders side by side over 33 unambiguous cases for byte-identical output, with a control over the
+  colliding set where the two must and do disagree, so the agreement is not vacuous. Wire encodings
+  are untouched. (`8169358`, PR #29)
 
 ### Changed
 - The release workflow fails when the tag being pushed has no matching CHANGELOG heading, and
