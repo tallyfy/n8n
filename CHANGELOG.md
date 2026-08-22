@@ -81,6 +81,16 @@ PR #29 landed. Read the list.
   encoders side by side over 33 unambiguous cases for byte-identical output, with a control over the
   colliding set where the two must and do disagree, so the agreement is not vacuous. Wire encodings
   are untouched. (`8169358`, PR #29)
+- A kick-off choice **option ID** carrying surrounding whitespace now resolves the same way on
+  all three field types, matching how the text passes already behaved. `" 2 "` against an option
+  `{id: 2, ...}` used to throw on `dropdown` (`no dropdown option matches " 2 "`), resolve on
+  `multi-select` (its input is trimmed before either pass runs), and pass straight through
+  unresolved on `radio` (a value api-v2 then rejects) - one caller, one padded id, three different
+  answers depending on the field type. `resolveChoiceOption` now trims the id arm itself, once,
+  so every caller gets the same answer regardless of whether it happened to trim before calling
+  in. `radio`'s existing behaviour on a genuinely unmatched value, raw passthrough and no throw,
+  is unchanged. This one **does** affect users today: the realistic trigger is a caller building a
+  kick-off value by string concatenation and leaving a space in. (`d23d0ea`, #30 via PR #33)
 
 ### Changed
 - The release workflow fails when the tag being pushed has no matching CHANGELOG heading, and
