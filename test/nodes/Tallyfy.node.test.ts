@@ -588,6 +588,146 @@ describe('Tallyfy node - request building', () => {
 				),
 			).rejects.toThrow(/no dropdown option matches/);
 		});
+
+		// n8n#30: the option-ID pass now tolerates surrounding whitespace in every branch,
+		// matching what the text passes (canonicalChoiceEq, #178) already did. Before this, the
+		// SAME padded id resolved on multiselect (splitList trims first), threw on dropdown (id
+		// arm compared untrimmed), and silently passed through unresolved on radio (id arm
+		// compared untrimmed; radio never throws) - see the issue's own before-and-after table.
+		// Owner decision 2026-08-22, recorded on tallyfy/middleware#240: trim the id arm too,
+		// everywhere. The known, accepted consequence: a padded value that happens to equal an
+		// option's id now resolves where it used to throw (dropdown) or pass through unresolved
+		// (radio) - that is the point of this change, not a side effect of it.
+		//
+		// This fixture deliberately has no option whose TEXT is '2' or ' 2 ', unlike the #240
+		// canonical-collision fixture above, so these tests can only pass via the ID arm and
+		// actually discriminate the #30 fix from the #178/#240 text-lenience already covered.
+		const paddedIdTemplateResp = {
+			data: {
+				prerun: [
+					{
+						id: 'F_DD3',
+						alias: 'plan3',
+						label: 'Plan3',
+						field_type: 'dropdown',
+						options: [
+							{ id: 2, text: 'Silver' },
+							{ id: 5, text: 'Gold' },
+						],
+					},
+					{
+						id: 'F_MS3',
+						alias: 'addons3',
+						label: 'Addons3',
+						field_type: 'multiselect',
+						options: [
+							{ id: 2, text: 'Silver' },
+							{ id: 5, text: 'Gold' },
+						],
+					},
+					{
+						id: 'F_RD3',
+						alias: 'tier3',
+						label: 'Tier3',
+						field_type: 'radio',
+						options: [
+							{ id: 2, text: 'Silver' },
+							{ id: 5, text: 'Gold' },
+						],
+					},
+				],
+			},
+		};
+
+		it('DROPDOWN resolves a whitespace-padded option id, where it used to throw (#30)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Padded id dropdown',
+					kickoffValues: { values: [{ field: 'plan3', value: ' 2 ' }] },
+					additionalFields: {},
+				},
+				[paddedIdTemplateResp, { data: { id: 'RUN14' } }],
+			);
+
+			// Before #30 this threw `no dropdown option matches " 2 "`: the id arm compared the
+			// untrimmed raw value and never matched option id 2. Neither option's text is '2' or
+			// ' 2 ', so the text passes cannot be what resolves this - only the id arm's new trim.
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Padded id dropdown',
+				prerun: { F_DD3: { id: 2, text: 'Silver' } },
+			});
+		});
+
+		it('MULTISELECT still resolves a whitespace-padded option id, unchanged by #30 (splitList already trimmed it, #178)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Padded id multiselect',
+					kickoffValues: { values: [{ field: 'addons3', value: ' 2 ' }] },
+					additionalFields: {},
+				},
+				[paddedIdTemplateResp, { data: { id: 'RUN15' } }],
+			);
+
+			// This one already passed before #30 - it is the reference behaviour the other two
+			// branches now match, not a new result.
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Padded id multiselect',
+				prerun: { F_MS3: [{ id: 2, text: 'Silver', selected: true }] },
+			});
+		});
+
+		it('RADIO resolves a whitespace-padded option id instead of passing the raw padded value through (#30)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Padded id radio',
+					kickoffValues: { values: [{ field: 'tier3', value: ' 2 ' }] },
+					additionalFields: {},
+				},
+				[paddedIdTemplateResp, { data: { id: 'RUN16' } }],
+			);
+
+			// Before #30 this returned the raw ' 2 ' unmatched (radio never throws, but api-v2
+			// would reject the padded value). It now resolves to the option's own canonical text.
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Padded id radio',
+				prerun: { F_RD3: 'Silver' },
+			});
+		});
+
+		// AC3: the radio no-throw exception is unrelated to #30 and must stay intact. A padded
+		// value that matches nothing - not even after trimming - must still return the raw value
+		// verbatim (padding included) and must still not throw.
+		it('RADIO still passes an unmatched whitespace-padded value through raw without throwing (#30 adds no throw)', async () => {
+			const { httpMock } = await run(
+				{
+					resource: 'process',
+					operation: 'launch',
+					blueprintId: 'BP1',
+					processName: 'Unmatched padded radio',
+					kickoffValues: { values: [{ field: 'tier3', value: ' nope ' }] },
+					additionalFields: {},
+				},
+				[paddedIdTemplateResp, { data: { id: 'RUN17' } }],
+			);
+
+			expect(requestAt(httpMock, 1).body).toEqual({
+				checklist_id: 'BP1',
+				name: 'Unmatched padded radio',
+				prerun: { F_RD3: ' nope ' },
+			});
+		});
 	});
 
 	describe('Task: Complete', () => {

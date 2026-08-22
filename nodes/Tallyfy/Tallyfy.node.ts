@@ -2772,7 +2772,7 @@ export class Tallyfy implements INodeType {
 		//
 		//   1. exact text
 		//   2. case-insensitive + trimmed text (canonicalChoiceEq, #178)
-		//   3. option id
+		//   3. option id, tolerating surrounding whitespace in the caller's value (#30)
 		//
 		// The pass separation is the whole point. All three arms used to sit inside ONE
 		// Array.prototype.find, which evaluates every arm against option A before it looks at
@@ -2789,9 +2789,15 @@ export class Tallyfy implements INodeType {
 		// mixed scan" to "first match in a text-only scan". So every value that matched exactly one
 		// option before still resolves to that same option.
 		//
-		// textValue and idValue are separate parameters because the three branches below feed the
-		// text and id arms differently today, and those differences are preserved rather than
-		// quietly normalised - see each call site.
+		// textValue and idValue are separate parameters because the three branches below still
+		// feed the TEXT arm differently (dropdown trims before calling; radio and multiselect do
+		// not need to - see each call site) and that difference is preserved rather than quietly
+		// normalised. The ID arm is different: it is trimmed HERE, once, for every caller (#30,
+		// owner decision 2026-08-22, recorded on tallyfy/middleware#240). Before #30 the three
+		// branches disagreed on whether the id arm was fed trimmed or raw, so one caller passing
+		// one padded id to one template got three different answers depending on the field type -
+		// see #30's own measurement. Trimming centrally here removes the need for every call site
+		// to agree, and matches what the text passes already tolerated via canonicalChoiceEq.
 		const resolveChoiceOption = (
 			options: IDataObject[],
 			textValue: unknown,
@@ -2802,7 +2808,7 @@ export class Tallyfy implements INodeType {
 				opt = options.find(o => canonicalChoiceEq(o.text, textValue));
 			}
 			if (!opt) {
-				opt = options.find(o => String(o.id) === String(idValue));
+				opt = options.find(o => String(o.id) === String(idValue).trim());
 			}
 			return opt;
 		};
@@ -2829,11 +2835,13 @@ export class Tallyfy implements INodeType {
 				// Converging up rather than down was an explicit owner decision on 2026-08-12,
 				// applied to Zapier and Workato in tallyfy/middleware in the same breath.
 				//
-				// The text arms get the TRIMMED value and the id arm the UNTRIMMED one. That
-				// asymmetry predates #240 and is kept deliberately, so " 2 " still throws here
-				// exactly as it did before, rather than newly resolving to option id 2. Widening
-				// the id arm would be a behaviour change beyond the decided rule, and it has to be
-				// decided once across all six connectors rather than unilaterally in this one.
+				// The id arm here is passed UNTRIMMED (rawValue, not the already-trimmed `text`) -
+				// resolveChoiceOption trims it before comparing (#30, owner decision 2026-08-22,
+				// recorded on tallyfy/middleware#240: the id pass tolerates surrounding whitespace
+				// in every branch, matching what the text passes already did). Before #30, " 2 "
+				// threw here because the id arm compared untrimmed and never matched; it now
+				// resolves to option id 2 exactly as the text arms already did for padded text.
+				// That is an intended behaviour change, not a regression - see #30.
 				const opt = resolveChoiceOption(options, text, rawValue);
 				if (!opt) {
 					throw new Error(`Kickoff field "${label}": no dropdown option matches "${String(rawValue)}"`);
@@ -2844,7 +2852,11 @@ export class Tallyfy implements INodeType {
 				return splitList(String(rawValue ?? '')).map(text => {
 					// Text passes first over the whole option list, then the id pass (#240) - same
 					// reasoning as the dropdown branch above. splitList has already trimmed each
-					// entry, so both arms see the same trimmed value here.
+					// entry, so both arms see the same trimmed value here, and resolveChoiceOption's
+					// own trim of the id arm (#30) is a no-op on top of an already-trimmed string.
+					// This branch's behaviour is therefore UNCHANGED by #30 - it already resolved a
+					// whitespace-padded id before #30 existed, which is what made the other two
+					// branches' inconsistency visible in the first place.
 					const opt = resolveChoiceOption(options, text, text);
 					if (!opt) {
 						throw new Error(`Kickoff field "${label}": no multiselect option matches "${text}"`);
@@ -2870,8 +2882,12 @@ export class Tallyfy implements INodeType {
 					return rawValue;
 				}
 				// Text passes first over the whole option list, then the id pass (#240). This
-				// branch never trimmed either arm and still does not, so " 2 " continues to fall
-				// through to the raw value rather than newly resolving to option id 2.
+				// branch still never trims the TEXT arm itself, but resolveChoiceOption now trims
+				// the id arm before comparing (#30), so " 2 " where an option has id: 2 newly
+				// resolves to that option's text here too, instead of falling through to the raw
+				// padded value api-v2 would reject. The no-match fallback below is untouched: an
+				// unmatched radio value still returns raw and still never throws - see the
+				// "Deliberately NOT a throw" note above, which #30 does not change.
 				const opt = resolveChoiceOption(options, rawValue, rawValue);
 				return opt ? opt.text : rawValue;
 			}
