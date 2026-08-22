@@ -5,9 +5,15 @@
 ## Overview
 
 Custom n8n community node package providing 96 Tallyfy API operations across 12 resources plus a
-Trigger node, for workflow automation. Published on npm as `n8n-nodes-tallyfy` **v1.1.2** (npm latest
-since 2026-08-08; installed via `npm install n8n-nodes-tallyfy`). **1.1.2 is the first release
-published by CI** rather than by hand, via npm trusted publishing (OIDC) with SLSA provenance.
+Trigger node, for workflow automation. Published on npm as `n8n-nodes-tallyfy` **v1.1.3** (npm
+`latest` since 2026-08-21; installed via `npm install n8n-nodes-tallyfy`). ⚠️ **This line said
+`v1.1.2`/"since 2026-08-08" until 2026-08-22, and was already a day stale when read at the start
+of a session that day** - the owner tagged and published 1.1.3 on 2026-08-21, `#21` closed the
+same day, and `npm view n8n-nodes-tallyfy version` / the registry `dist-tags.latest` both read
+`1.1.3` when re-checked 2026-08-22. Re-derive rather than trusting this line too: it will decay
+the same way. **1.1.2 was the first release published by CI** rather than by hand, via npm
+trusted publishing (OIDC) with SLSA provenance; 1.1.3 confirms the CI path is durable, not a
+one-off.
 
 > ✅ **RELEASED in v1.1.2 on 2026-08-08.** This block said "Unreleased on `main`" from 2026-07-28
 > until then. `47c0225` (**`tallyfy/middleware#178`**, still OPEN - lenient kick-off choice match: `encodeKickoffValue` matches a
@@ -81,32 +87,40 @@ published by CI** rather than by hand, via npm trusted publishing (OIDC) with SL
   Do not run `npm publish` by hand. Check the changelog half locally before tagging, since a tag push
   is irreversible: `scripts/check-changelog.sh <version>` exits 0 when the entry exists, 1 when it
   does not, 2 when it was called wrongly.
-- ⚠️ **`main` declares `1.1.3` and it is NOT published. npm `latest` is still `1.1.2`.** Updated
-  2026-08-10 (#24, PR #25): the version and its `CHANGELOG.md` entry landed, and the tag was
-  deliberately **not** pushed. So the version on `main` is not the version anyone is running, and
-  a `package.json` read is not an answer to "what do users have".
+- ✅ **`1.1.3` WAS TAGGED AND PUBLISHED, 2026-08-21, by the owner directly. `#21` is CLOSED.**
+  Corrected 2026-08-22 - this bullet said "NOT published, npm `latest` is still `1.1.2`" until
+  then, and that was already false by the time a session read it the next day. Verified two ways:
+  `npm view n8n-nodes-tallyfy version` and the registry's `dist-tags.latest` both read `1.1.3`,
+  and `#21` (the release tracking issue) reads `state: CLOSED, stateReason: COMPLETED`. The tag
+  `v1.1.3` points at `e1094fea` (tagger `amit@tallyfy.com`, `2026-08-21T12:47:58Z`), and its
+  `Release` workflow run is `conclusion: success`.
 
-  `1.1.3` carries **three** merged user-facing fixes: `d2224ba` (PR #13, issue #12), the
-  `SEAT_POOL_EXHAUSTED` message naming the pool that is actually full; `dd426b5` (PR #23, issue
-  #22), lenient `radio` kick-off matching; and `dd976e8e` (PR #27, issue #26, 2026-08-12),
-  `encodeKickoffValue` accepting an option **ID** on dropdown and multiselect as radio already did.
-  **Two of the three can reach a customer today** — api-v2 does not emit the 409 shape until
-  `allocated_seats_model_active` is flipped (`api-v2#9143`, open), but both kick-off matching fixes
-  are live behaviour the moment 1.1.3 is published.
+  `git log v1.1.2..v1.1.3 --oneline` shows what actually shipped - **four** merged user-facing
+  fixes, not three: `d2224ba` (PR #13, issue #12) `SEAT_POOL_EXHAUSTED` naming the pool that is
+  actually full; `dd426b5` (PR #23, issue #22) lenient `radio` kick-off matching; `dd976e8e` (PR
+  #27, issue #26) `encodeKickoffValue` accepting an option **ID** on dropdown and multiselect as
+  radio already did; and `8169358` (PR #29, `tallyfy/middleware#240`) the exact-text-before-id
+  precedence fix for ambiguous choice input. The "three" count above was already stale before
+  publication - #29 landed after it was last derived and was never folded back in. Read the
+  `git log` range, never a prose enumeration, for exactly this reason.
 
-  ⚠️ **This bullet said "two" until 2026-08-12, one commit after the third landed.** The count is a
-  literal enumeration in prose and nothing tests it, so it goes stale the next time anything merges
-  to `main` unpublished. **Derive it instead:** `git log v1.1.2..origin/main --oneline`, and read
-  `CHANGELOG.md`'s `## [1.1.3]` section, which is the entry `scripts/check-changelog.sh` actually
-  gates on.
+  ⚠️ **`main` is AHEAD of the published `1.1.3` again, as of 2026-08-22, and `package.json` does
+  NOT say so.** `tallyfy/n8n#30` (option-ID whitespace trimming, PR #33, merged `d23d0ea`) landed
+  on `main` after the `v1.1.3` tag, and `package.json` still reads `1.1.3` - unchanged, because a
+  version bump is a separate, deliberate step nobody has taken yet. **This is exactly the trap the
+  next line warns about**: `node -p "require('./package.json').version"` and `npm view
+  n8n-nodes-tallyfy version` both currently read `1.1.3` and APPEAR to agree, which reads as
+  "nothing to publish" - they agree only because nobody has bumped the version for what shipped
+  after the tag. **The real check is `git log v1.1.3..origin/main --oneline`, not a version-string
+  comparison**, whenever a version string comparison alone would read as reassuring: a
+  version-string match tells you nothing once a version has already been used once and `main` has
+  moved past it.
 
-  **To release it: `git tag v1.1.3 && git push origin v1.1.3`.** That is the whole of what is left
-  on **#21**, and it is irreversible. The 2026-08-09 decision was wait-and-batch, resuming when
-  either `api-v2#9143` flips or the droplet install (#14) is scheduled; neither had fired when this
-  was written.
-
-  Re-derive rather than trusting this line: `git log v1.1.2..origin/main`, and compare
-  `node -p "require('./package.json').version"` against `npm view n8n-nodes-tallyfy version`.
+  **To release what is unreleased now**: bump `package.json` to the next version (**1.1.4** -
+  `1.1.3` cannot be reused, the tag exists), add its `CHANGELOG.md` heading, commit, then
+  `git tag vX.Y.Z && git push origin vX.Y.Z`. Nobody has decided to do this yet; it is not done as
+  a side effect of merging a fix to `main`, on purpose, so that publishing stays a deliberate act
+  gated on the owner rather than on whoever happens to merge next.
 - ⚠️ **Two traps, both measured rather than theorised.** (1) `actions/setup-node` must NOT set
   `registry-url` here. With it, setup-node writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
   into a temp `.npmrc`; with no token that expands to empty, npm treats auth as configured, **skips

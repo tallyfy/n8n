@@ -30,12 +30,22 @@ a permanent public provenance statement into the sigstore transparency log.
 
 ## [1.1.3] - 2026-08-10
 
-Prepared but **not yet published**. `package.json` declares 1.1.3 and npm `latest` is still 1.1.2.
-The release happens when `v1.1.3` is tagged and pushed. **Pushing that tag IS the publish**: the
-release workflow authenticates to npm by trusted publishing over OIDC and runs
-`npm publish --provenance`, so there is no separate hand-publish step and no `NPM_TOKEN`.
-Covers `c21d7e6..8169358`, which is `main` as of 2026-08-21. Every entry below was merged and left
-unpublished on `main`, plus the gate that stops that recurring.
+✅ **PUBLISHED 2026-08-21** (tag `v1.1.3` at `e1094fea`, by the owner directly, `#21` closed the
+same day). This section said "Prepared but **not yet published**... npm `latest` is still 1.1.2"
+until 2026-08-22, and that was already a day stale when a session next read it - `npm view
+n8n-nodes-tallyfy version` and the registry `dist-tags.latest` both read `1.1.3`. The heading date
+above is left as **2026-08-10**, when the version was first declared on `main` (#24/PR #25), on
+purpose, rather than silently rewritten to the real release date - see the entries this section
+already has below for why a number gets corrected in place with a note rather than overwritten.
+Covers `c21d7e6..e1094fea`, which is every entry below (the `c21d7e6..8169358` this line used to
+give stopped two docs-only commits short of what the tag actually points at).
+
+⚠️ **A bullet added to this section AFTER 2026-08-21 is NOT part of what shipped as 1.1.3.**
+`main` keeps using this heading between releases (see the CHANGELOG-discipline entry below), so an
+entry appearing here is not proof it was published - check `git log v1.1.3..origin/main` for what
+is still ahead of the tag, the same way this section itself used to need that check before it
+shipped. The next release needs its own new heading (**1.1.4** - `1.1.3` cannot be reused, the tag
+exists) and its own tag; nobody has decided to cut it yet.
 
 Do not restate the number of fixes here. It has now decayed twice: this paragraph said "two" while
 three were listed, was corrected to three in `d68dfe5`, and was wrong again within two days when
