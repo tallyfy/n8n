@@ -28,6 +28,58 @@ No `v1.1.1` tag will be created. Pushing a `v*` tag is this repo's publish trigg
 historical commit would fire the release workflow against an old tree, and even a failed run signs
 a permanent public provenance statement into the sigstore transparency log.
 
+## Changelog discipline: where work in progress goes
+
+**Between releases, entries go under `## [Unreleased]` below, never under the last released
+version's heading.** Cutting a release means renaming that heading to `## [X.Y.Z] - YYYY-MM-DD`
+and opening a fresh, empty `## [Unreleased]` above it. Nothing has to be hunted down and moved,
+so nothing can be left behind.
+
+This is what the preamble above has always claimed - Keep a Changelog prescribes `[Unreleased]` -
+but the file did not actually have one until 2026-08-22, and `main` accumulated under the last
+released heading instead. That put the `#30` fix under `## [1.1.3]`, a version tagged and
+published a day before the fix landed (tallyfy/n8n#35). Both conventions were half-adopted at
+once, which is the part that made it wrong rather than either convention on its own.
+
+`## [Unreleased]` is invisible to the release gate by construction: `scripts/check-changelog.sh`
+is only ever asked about a semantic version, from a `v*` tag or from `package.json`, and
+"Unreleased" is never either. So it cannot accidentally satisfy a release that has not written
+its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
+`test/scripts/check-changelog.test.ts`.
+
+## [Unreleased]
+
+Not published. `package.json` still declares `1.1.3`, which is already tagged and on npm, so
+everything here is ahead of the last release. `git log v1.1.3..origin/main` is the check that
+says what that is; a `package.json` versus `npm view` comparison reads as "they agree, nothing
+to publish" and is wrong for exactly this state.
+
+The next release needs its own new heading (**1.1.4** - `1.1.3` cannot be reused, the tag
+exists) and its own tag. Nobody has decided to cut it yet.
+
+### Fixed
+- A kick-off choice **option ID** carrying surrounding whitespace now resolves the same way on
+  all three field types, matching how the text passes already behaved. `" 2 "` against an option
+  `{id: 2, ...}` used to throw on `dropdown` (`no dropdown option matches " 2 "`), resolve on
+  `multi-select` (its input is trimmed before either pass runs), and pass straight through
+  unresolved on `radio` (a value api-v2 then rejects) - one caller, one padded id, three different
+  answers depending on the field type. `resolveChoiceOption` now trims the id arm itself, once,
+  so every caller gets the same answer regardless of whether it happened to trim before calling
+  in. `radio`'s existing behaviour on a genuinely unmatched value, raw passthrough and no throw,
+  is unchanged. This one **does** affect users today: the realistic trigger is a caller building a
+  kick-off value by string concatenation and leaving a space in. (`d23d0ea`, #30 via PR #33)
+
+  Filed under `## [1.1.3]` when it landed, which was wrong - `d23d0ea` is not an ancestor of the
+  `v1.1.3` tag (control on the same invocation: `8169358`, PR #29, is). Moved here 2026-08-22.
+
+### Changed
+- The release gate now checks that a version's CHANGELOG section has entries under it, not only
+  that its heading exists. `scripts/check-changelog.sh` stopped at the heading, so a bare
+  `## [1.1.4]` with nothing beneath it passed, and the release would have shipped with its notes
+  still filed under the previous version. Measured in both directions before the fix: an empty
+  section under a correct heading exited 0, and a missing heading exited 1, so the gate was alive
+  and blind only to the case that mattered. (#35)
+
 ## [1.1.3] - 2026-08-10
 
 ✅ **PUBLISHED 2026-08-21** (tag `v1.1.3` at `e1094fea`, by the owner directly, `#21` closed the
@@ -40,12 +92,13 @@ already has below for why a number gets corrected in place with a note rather th
 Covers `c21d7e6..e1094fea`, which is every entry below (the `c21d7e6..8169358` this line used to
 give stopped two docs-only commits short of what the tag actually points at).
 
-⚠️ **A bullet added to this section AFTER 2026-08-21 is NOT part of what shipped as 1.1.3.**
-`main` keeps using this heading between releases (see the CHANGELOG-discipline entry below), so an
-entry appearing here is not proof it was published - check `git log v1.1.3..origin/main` for what
-is still ahead of the tag, the same way this section itself used to need that check before it
-shipped. The next release needs its own new heading (**1.1.4** - `1.1.3` cannot be reused, the tag
-exists) and its own tag; nobody has decided to cut it yet.
+⚠️ **This section is CLOSED. Nothing may be added to it.** Everything here shipped in the
+`v1.1.3` tag; work that has not shipped goes under `## [Unreleased]` above, per the discipline
+entry there. From 2026-08-21 to 2026-08-22 `main` did accumulate under this heading, which is how
+the `#30` fix ended up filed against a release that does not contain it (tallyfy/n8n#35), and the
+paragraph here used to describe that as the convention and point at a "CHANGELOG-discipline entry
+below" that did not exist - grepping the file for it returned only the reference itself. The
+convention is now written down, above, and this heading is no longer where work in progress goes.
 
 Do not restate the number of fixes here. It has now decayed twice: this paragraph said "two" while
 three were listed, was corrected to three in `d68dfe5`, and was wrong again within two days when
@@ -76,7 +129,15 @@ PR #29 landed. Read the list.
   resolve for radio and throw for dropdown, so the same id gave two different answers depending on
   the field type. The option's own canonical value is still what gets sent, and a value matching
   neither an option text nor an id still throws. This one **does** affect users today.
-  (`5f8eaec`, #26 via PR #27)
+  (`dd976e8`, #26 via PR #27)
+
+  ⚠️ This cited `5f8eaec` until 2026-08-22, which is the PR's own branch commit and is **not on
+  `main` at all** (`git branch -r --contains 5f8eaec` returns only `origin/fix/178-option-id-parity`).
+  The repo squash-merges, so the SHA that landed is `dd976e8` and it IS in the tag. Noticed while
+  running `--is-ancestor` over every commit this section cites for tallyfy/n8n#35: a branch SHA
+  answers "not in the release" for the same reason a genuinely unreleased commit does, so the
+  probe cannot tell them apart on its own and the fix here was real while this one was a
+  mis-citation. Cite the landed commit, not the branch commit.
 - A kick-off choice whose value matches one option's **text** and a different option's **ID** now
   resolves to the text match, every time, rather than to whichever of the two the template happened
   to list first. `encodeKickoffValue` ran its exact-text arm and its option-ID arm inside a single
@@ -91,16 +152,6 @@ PR #29 landed. Read the list.
   encoders side by side over 33 unambiguous cases for byte-identical output, with a control over the
   colliding set where the two must and do disagree, so the agreement is not vacuous. Wire encodings
   are untouched. (`8169358`, PR #29)
-- A kick-off choice **option ID** carrying surrounding whitespace now resolves the same way on
-  all three field types, matching how the text passes already behaved. `" 2 "` against an option
-  `{id: 2, ...}` used to throw on `dropdown` (`no dropdown option matches " 2 "`), resolve on
-  `multi-select` (its input is trimmed before either pass runs), and pass straight through
-  unresolved on `radio` (a value api-v2 then rejects) - one caller, one padded id, three different
-  answers depending on the field type. `resolveChoiceOption` now trims the id arm itself, once,
-  so every caller gets the same answer regardless of whether it happened to trim before calling
-  in. `radio`'s existing behaviour on a genuinely unmatched value, raw passthrough and no throw,
-  is unchanged. This one **does** affect users today: the realistic trigger is a caller building a
-  kick-off value by string concatenation and leaving a space in. (`d23d0ea`, #30 via PR #33)
 
 ### Changed
 - The release workflow fails when the tag being pushed has no matching CHANGELOG heading, and

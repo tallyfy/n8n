@@ -28,10 +28,15 @@
 # step that only one document mentioned is the step that stopped happening
 # (tallyfy/n8n#18).
 #
-#   1. Land the change on main.
+#   1. Land the change on main. Its CHANGELOG entry goes under "## [Unreleased]".
 #   2. Build and lint, both green.
-#   3. Bump "version" in package.json AND add a CHANGELOG.md entry for it,
-#      as "## [X.Y.Z] - YYYY-MM-DD". Step 5 below now fails without it.
+#   3. Bump "version" in package.json AND give this release its CHANGELOG.md
+#      heading, by RENAMING "## [Unreleased]" to "## [X.Y.Z] - YYYY-MM-DD" and
+#      opening a fresh empty "## [Unreleased]" above it. Step 5 below fails
+#      without a heading, and since 2026-08-22 it also fails when the heading
+#      has nothing under it - adding a second, empty "## [X.Y.Z]" and leaving
+#      the entries where they were is exactly the mistake it now catches
+#      (tallyfy/n8n#35).
 #   4. Commit that to main.
 #   5. git tag vX.Y.Z && git push origin vX.Y.Z
 #      This workflow then verifies CHANGELOG.md has a heading for the tag,
@@ -57,7 +62,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # Stops a release with no CHANGELOG entry, which is what happened to 1.1.0, 1.1.1 and
-      # 1.1.2 (tallyfy/n8n#18).
+      # 1.1.2 (tallyfy/n8n#18). Since 2026-08-22 it also stops a release whose heading exists
+      # but has nothing under it, which the heading-only check passed (tallyfy/n8n#35).
       #
       # It runs first, before npm ci, on purpose. It needs nothing but the checkout, so failing
       # here costs seconds rather than the several minutes of install, lint, build and test that
