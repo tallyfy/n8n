@@ -84,8 +84,14 @@ describe('scripts/check-changelog.sh', () => {
 		expect(res.stderr).toContain('no heading for 2.0.1');
 	});
 
+	// The fixture carries an entry because an empty section is now a failure in its own right
+	// (see the empty-section tests below). Without one this would go red for a reason that has
+	// nothing to do with the leading v, which is the only thing it is here to test.
 	it('accepts the tag form with a leading v', () => {
-		const file = fixture('vform.md', '# Changelog\n\n## [2.0.0] - 2026-01-01\n');
+		const file = fixture(
+			'vform.md',
+			'# Changelog\n\n## [2.0.0] - 2026-01-01\n\n### Fixed\n- thing\n',
+		);
 		expect(run('v2.0.0', file).status).toBe(0);
 	});
 
@@ -100,8 +106,12 @@ describe('scripts/check-changelog.sh', () => {
 		expect(run('1.1.1', file).status).toBe(1);
 	});
 
+	// As above, the entry is here so the 1.1.20 case fails or passes on the prefix question alone.
 	it('does not accept a heading that merely starts with the version', () => {
-		const file = fixture('prefix.md', '# Changelog\n\n## [1.1.20] - 2026-01-01\n');
+		const file = fixture(
+			'prefix.md',
+			'# Changelog\n\n## [1.1.20] - 2026-01-01\n\n### Fixed\n- thing\n',
+		);
 		expect(run('1.1.2', file).status).toBe(1);
 		expect(run('1.1.20', file).status).toBe(0);
 	});
@@ -109,6 +119,65 @@ describe('scripts/check-changelog.sh', () => {
 	it('does not accept a sub-heading', () => {
 		const file = fixture('sub.md', '# Changelog\n\n### [3.0.0] - 2026-01-01\n');
 		expect(run('3.0.0', file).status).toBe(1);
+	});
+
+	// Issue #35. Until 2026-08-22 the script asserted only that the heading existed, so a bare
+	// "## [X.Y.Z]" with nothing under it passed, and a release could ship with its notes still
+	// filed under the previous version. Measured both directions against the old script first:
+	// the empty section exited 0 and a missing heading exited 1, so the gate was alive and blind
+	// only to this case. These are the tests that would have caught it.
+	it('fails when the version has a heading but nothing under it', () => {
+		const file = fixture(
+			'empty-section.md',
+			'# Changelog\n\n## [2.0.0] - 2026-01-01\n\n## [1.9.0] - 2025-12-01\n\n### Fixed\n- real\n',
+		);
+		const res = run('2.0.0', file);
+		expect(res.status).toBe(1);
+		expect(res.stderr).toContain('nothing under it');
+	});
+
+	it('fails when the section is a bare sub-heading with no entries', () => {
+		const file = fixture(
+			'label-only.md',
+			'# Changelog\n\n## [2.0.0] - 2026-01-01\n\n### Fixed\n\n## [1.9.0] - 2025-12-01\n\n- real\n',
+		);
+		expect(run('2.0.0', file).status).toBe(1);
+	});
+
+	it('fails when the section is the last in the file and is empty', () => {
+		const file = fixture('empty-last.md', '# Changelog\n\n## [2.0.0] - 2026-01-01\n\n\n');
+		expect(run('2.0.0', file).status).toBe(1);
+	});
+
+	// The negative half. A rule that demanded a leading "-" would reject a legitimately written
+	// release, and a gate that refuses everything is as useless as one that accepts everything.
+	// This is what stops the empty-section check being tightened into that.
+	it('accepts a section whose entries are prose rather than bullets', () => {
+		const file = fixture(
+			'prose-body.md',
+			'# Changelog\n\n## [2.0.0] - 2026-01-01\n\nA prose-only release note.\n',
+		);
+		expect(run('2.0.0', file).status).toBe(0);
+	});
+
+	// [Unreleased] is the heading this repo accumulates under between releases. The gate is only
+	// ever asked about a semantic version, so it never matches - but an empty one sitting directly
+	// above the version being released must not be mistaken for that version's own empty section.
+	it('an empty [Unreleased] section does not block the release below it', () => {
+		const file = fixture(
+			'unreleased-empty.md',
+			'# Changelog\n\n## [Unreleased]\n\n## [2.0.0] - 2026-01-01\n\n### Fixed\n- shipped\n',
+		);
+		expect(run('2.0.0', file).status).toBe(0);
+	});
+
+	it('a populated [Unreleased] section does not satisfy a version release', () => {
+		const file = fixture(
+			'unreleased-full.md',
+			'# Changelog\n\n## [Unreleased]\n\n### Fixed\n- pending\n\n## [1.9.0] - 2025-12-01\n\n- real\n',
+		);
+		expect(run('2.0.0', file).status).toBe(1);
+		expect(run('2.0.0', file).stderr).toContain('no heading for 2.0.0');
 	});
 
 	// Both failure modes exit 2, distinct from the exit 1 that means "no entry", so a broken

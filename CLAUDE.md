@@ -26,13 +26,15 @@ one-off.
 > said to bump `package.json` then run `npm publish --otp=XXXXXX`, presenting a manual 2FA publish as
 > the only route. The real blocker was never the OTP: it was that CI could not publish at all, and
 > the reason was misdiagnosed for weeks as a missing `NPM_TOKEN`. **Releases now go through CI.** The
-> whole procedure is: bump `version` in `package.json`, **add a `## [X.Y.Z] - YYYY-MM-DD` entry to
-> `CHANGELOG.md`**, commit to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag push
-> is the trigger and there is no manual publish step.
+> whole procedure is: bump `version` in `package.json`, **rename `## [Unreleased]` in `CHANGELOG.md`
+> to `## [X.Y.Z] - YYYY-MM-DD` and open a fresh empty `## [Unreleased]` above it**, commit to
+> `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag push is the trigger and there is
+> no manual publish step.
 >
 > ⚠️ **The CHANGELOG step is enforced since 2026-08-09 and is not optional.** `scripts/check-changelog.sh`
 > runs first in `release.yml`, before `npm ci`, and fails the run when the pushed tag has no matching
-> heading. `npm test` fails the same way as soon as `package.json` is bumped without one, so the
+> heading, or has one with nothing under it (the empty-section half added 2026-08-22, #35).
+> `npm test` fails the same way as soon as `package.json` is bumped without one, so the
 > mistake surfaces at commit time rather than at tag time. It was added because 1.1.0, 1.1.1 and
 > 1.1.2 all shipped with no entry: the procedure was written in two places and only the middleware
 > runbook mentioned the CHANGELOG, so the step only one document mentioned is the one that stopped
@@ -73,7 +75,7 @@ one-off.
 - **Toolchain**: `n8n-workflow` ^2.16.0 (dev + peer), `engines.node` >=20.15, ESLint 8 + `@typescript-eslint` 8 + `eslint-plugin-n8n-nodes-base` 1.16.7 (+ `jsonc-eslint-parser` for linting package.json). `npm run build` (tsc + gulp icons) and `npm run lint` are both green.
 - **n8n-workflow 2.x API note**: `NodeConnectionType` is type-only in 2.x; `inputs`/`outputs` use the literal `['main']` form (same runtime value as the old enum).
 - **Deferred lint rules**: `.eslintrc.json` disables six `n8n-nodes-base` rules that would force user-visible UI/behavior changes (option-sorting, maxValue removal, color widget, error classes) plus the URL-mangling `cred-class-field-documentation-url-miscased`. Re-enable during the `@n8n/node-cli` verified-node re-scaffold (issue #4 phase 2).
-- **Tests**: `npm test` runs Jest. 103 tests declared across 5 files: `test/credentials/TallyfyApi.credentials.test.ts` (5), `test/live/Tallyfy.live.test.ts` (20), `test/nodes/Tallyfy.node.test.ts` (57), `test/nodes/TallyfyTrigger.node.test.ts` (11), `test/scripts/check-changelog.test.ts` (10). The live file is gated behind `TALLYFY_LIVE=1` (`const d = LIVE ? describe : describe.skip`), so a plain `npm test` skips its 20 and reports 83 passed, 20 skipped. Re-derive rather than trusting this count, since it decays the moment a test is added or removed: `grep -rcE '^[[:space:]]*it\(' test/**/*.test.ts`.
+- **Tests**: `npm test` runs Jest. 113 tests declared across 5 files, re-derived 2026-08-22: `test/credentials/TallyfyApi.credentials.test.ts` (5), `test/live/Tallyfy.live.test.ts` (20), `test/nodes/Tallyfy.node.test.ts` (61), `test/nodes/TallyfyTrigger.node.test.ts` (11), `test/scripts/check-changelog.test.ts` (16). The live file is gated behind `TALLYFY_LIVE=1` (`const d = LIVE ? describe : describe.skip`), so a plain `npm test` skips its 20 and reports **93 passed, 20 skipped** (observed, not inferred). Re-derive rather than trusting this count, since it decays the moment a test is added or removed: `grep -rcE '^[[:space:]]*it\(' test/**/*.test.ts`. ⚠️ **This bullet read 103 / 57 / 10 until 2026-08-22 and had already decayed on its own**: `Tallyfy.node.test.ts` had gained four tests that were never folded back in, so only 6 of the 10-test delta is the check-changelog work of #35. Exactly the decay the sentence above warns about, in the sentence that warns about it.
 - **Release**: `.github/workflows/release.yml` publishes to npm **via trusted publishing (OIDC)** on
   `v*` tags, with provenance. Gates in order: **CHANGELOG entry check**, npm upgrade, `npm ci`, lint,
   build, test, tag/version match, publish. The CHANGELOG check runs first because it needs only the
@@ -82,11 +84,24 @@ one-off.
   short-lived one; `release.yml` contains no `secrets.` reference at all, and the old `NPM_TOKEN`
   repo secret was **deleted 2026-08-08** (`gh api repos/tallyfy/n8n/actions/secrets` → `total_count: 0`).
   Registered publisher on npmjs.com: org `tallyfy`, repo `n8n`, workflow `release.yml`.
-- **To cut a release**: bump `version` in `package.json`, **add a `## [X.Y.Z] - YYYY-MM-DD` entry to
-  `CHANGELOG.md`**, commit to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. Nothing else.
-  Do not run `npm publish` by hand. Check the changelog half locally before tagging, since a tag push
-  is irreversible: `scripts/check-changelog.sh <version>` exits 0 when the entry exists, 1 when it
-  does not, 2 when it was called wrongly.
+- **Work in progress goes under `## [Unreleased]` in `CHANGELOG.md`, never under the last released
+  version's heading** (convention recorded in the file itself 2026-08-22, #35). Both conventions
+  were half-adopted before that: the preamble claimed Keep a Changelog, which prescribes
+  `[Unreleased]`, while `main` accumulated under the last released heading, which is how the `#30`
+  fix ended up filed under `1.1.3` after `v1.1.3` was already tagged and on npm.
+- **To cut a release**: bump `version` in `package.json`, **rename `## [Unreleased]` to
+  `## [X.Y.Z] - YYYY-MM-DD` and open a fresh empty `## [Unreleased]` above it**, commit to `main`,
+  then `git tag vX.Y.Z && git push origin vX.Y.Z`. Nothing else. Do not run `npm publish` by hand.
+  Renaming rather than adding is the point: nothing has to be hunted down and moved, so nothing can
+  be left behind. Check the changelog half locally before tagging, since a tag push is
+  irreversible: `scripts/check-changelog.sh <version>` exits 0 when the entry exists **and has
+  entries under it**, 1 when it does not, 2 when it was called wrongly or the scan itself broke.
+  ⚠️ **The "and has entries under it" half is new as of 2026-08-22 (#35).** Until then the script
+  stopped at the heading, so a bare `## [1.1.4]` with nothing beneath it passed and the release
+  would have shipped with its notes still filed under the previous version. Measured both
+  directions before the change: an empty section under a correct heading exited 0, a missing
+  heading exited 1. An empty `## [Unreleased]` never blocks a release, and `[Unreleased]` can never
+  satisfy one, because the gate is only ever asked about a semantic version.
 - ✅ **`1.1.3` WAS TAGGED AND PUBLISHED, 2026-08-21, by the owner directly. `#21` is CLOSED.**
   Corrected 2026-08-22 - this bullet said "NOT published, npm `latest` is still `1.1.2`" until
   then, and that was already false by the time a session read it the next day. Verified two ways:
@@ -117,7 +132,8 @@ one-off.
   moved past it.
 
   **To release what is unreleased now**: bump `package.json` to the next version (**1.1.4** -
-  `1.1.3` cannot be reused, the tag exists), add its `CHANGELOG.md` heading, commit, then
+  `1.1.3` cannot be reused, the tag exists), rename `## [Unreleased]` in `CHANGELOG.md` to
+  `## [1.1.4] - YYYY-MM-DD` and open a fresh empty `## [Unreleased]` above it, commit, then
   `git tag vX.Y.Z && git push origin vX.Y.Z`. Nobody has decided to do this yet; it is not done as
   a side effect of merging a fix to `main`, on purpose, so that publishing stays a deliberate act
   gated on the owner rather than on whoever happens to merge next.
