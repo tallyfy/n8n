@@ -57,7 +57,13 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Self-hosted routing (tallyfy/syncing-scripts#698). This repo carries zero
+    # repository secrets (npm publishing uses OIDC trusted publishing via
+    # id-token, not a static token), and OIDC token issuance is a GitHub Actions
+    # control-plane feature independent of which runner executes the job, so it
+    # is unaffected by which runner this lands on. No root/apt/docker needed.
+    # Unset, this is exactly 'ubuntu-latest'.
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
