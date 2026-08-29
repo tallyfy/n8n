@@ -80,6 +80,37 @@ exists) and its own tag. Nobody has decided to cut it yet.
   section under a correct heading exited 0, and a missing heading exited 1, so the gate was alive
   and blind only to the case that mattered. (#35)
 
+- `package-lock.json` now states the version this package actually is. Its two root version
+  fields both read `1.1.1` while `package.json` read `1.1.3`, because the lock was never
+  regenerated when the version was bumped through 1.1.2 and 1.1.3. Fixed by regenerating with
+  `npm install --package-lock-only`, which changed exactly those two lines and nothing else: 798
+  package entries before and after, and the two documents are identical once only those two
+  fields are normalised, checked against a control that reports a difference when one nested
+  dependency version is perturbed. No dependency was bumped. (#39)
+
+  Nothing was broken by this and no release failed because of it. `npm ci` does not look at the
+  root version field: run against the drifted pair it exited 0 and installed 797 packages, while
+  the control on the same command, `package.json` asking for jest `^28.0.0` against a lock
+  pinning `29.7.0`, exited 1 with `EUSAGE` and named the sync requirement. What it did mean is
+  that the lock file inside the published 1.1.2 and 1.1.3 tarballs stated a version those
+  packages were not.
+
+- A new gate, `scripts/check-version-sync.sh`, fails when `package.json` and either of
+  `package-lock.json`'s root version fields disagree. It runs on every push and pull request via
+  the new `.github/workflows/version-sync.yml`, and again in `release.yml` before `npm ci` as the
+  backstop on the one path that publishes. Shown in both directions on the same run: the real
+  pre-fix pair read off `origin/main` exits 1, the fixed pair exits 0, and reintroducing the drift
+  fails exactly one test in `test/scripts/check-version-sync.test.ts`, the regression lock, with
+  the other 13 still green. It refuses to answer, exit 2, rather than passing when a version field
+  is absent or not a string, because all three reading empty would otherwise compare equal and the
+  gate would report OK forever. (#39)
+
+  This is also the repo's first workflow that runs on anything other than a `v*` tag. Until now
+  `release.yml` was the only workflow, so a pull request produced no checks at all and every gate
+  the repo had fired for the first time during the publish itself. Running lint, build and the
+  full test suite on pull requests is still not wired up, and is deliberately left as separate
+  work rather than folded in here.
+
 ## [1.1.3] - 2026-08-10
 
 ✅ **PUBLISHED 2026-08-21** (tag `v1.1.3` at `e1094fea`, by the owner directly, `#21` closed the

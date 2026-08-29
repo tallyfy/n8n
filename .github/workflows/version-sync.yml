@@ -1,0 +1,53 @@
+# Fails a push or pull request whose package.json and package-lock.json disagree about this
+# package's own version.
+#
+# Why this workflow exists at all, rather than a step bolted onto something that already runs:
+# nothing already runs. Until this file landed, release.yml was the ONLY workflow in the repo and
+# it fires on `push: tags: v*` alone, so a pull request here produced zero checks and a push to
+# main produced zero checks. Every gate the repo had, the CHANGELOG check and the whole jest
+# suite included, therefore fired for the first time during the publish itself. That is how
+# package.json reached 1.1.3 while both of the lock file's root version fields still said 1.1.1,
+# survived two releases, and was found by hand rather than by CI (tallyfy/n8n#39).
+#
+# It is deliberately narrow. It installs nothing and runs one script, so it costs seconds and
+# cannot go red for a reason unrelated to what it is named after. Running lint, build and the test
+# suite on pull requests is a real gap and a bigger decision, and it is not this.
+#
+# The check itself is scripts/check-version-sync.sh, shared with release.yml and proven offline by
+# test/scripts/check-version-sync.test.ts. A workflow step cannot be tested before it is relied
+# on, so the logic does not live inline here.
+
+name: Version sync
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+# github.event_name is in the group key on purpose, so a pull_request run and a push run for the
+# same branch cannot share a group and cancel one another. cancel-in-progress is true only for
+# pull requests: on a push, head_ref is empty, so every merge would otherwise fall through to the
+# same ref_name key and each merge would cancel the previous merge's verdict.
+concurrency:
+  group: version-sync-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  version-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node is used only to parse the two JSON files. It is pinned to the same version
+      # release.yml uses rather than left to whatever the runner image ships, so this check and
+      # the release-time copy of it cannot diverge.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: package.json and package-lock.json agree on the version
+        run: scripts/check-version-sync.sh
