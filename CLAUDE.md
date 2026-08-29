@@ -55,13 +55,19 @@ one-off.
   `.github/workflows/version-sync.yml` (#39) runs on every push to `main` and on every pull
   request. It checks out the repo, installs nothing, and runs one script that compares the version
   in `package.json` against the two root version fields in `package-lock.json`. It publishes
-  nothing and writes nothing. **The permission's justification is unchanged**, because the
+  nothing and writes nothing. ⚠️ **As of 2026-08-29 there are TWO such workflows, not one.**
+  `.github/workflows/ci.yml` (`tallyfy/work-queue#1174`) also runs on every push to `main` and every
+  pull request, with four jobs: `lint`, `typecheck`, `test`, `build`. It installs dependencies and
+  builds into `dist/`, and it publishes nothing and writes nothing to the repo either. **The permission's justification is unchanged**, because the
   justification is that no branch push PUBLISHES, not that no branch push runs anything at all.
 
   **The confirmation command changed with it, and the old one now fails toward alarm.** It was
   `gh run list --repo tallyfy/n8n --limit 5 --json headSha,workflowName`, expecting your SHA
   absent, which from 2026-08-28 reads as "something ran, so my push was not inert" on every single
-  push. Expect one run named `Version sync`, and assert there is no `Release` row:
+  push. ⚠️ **Expect TWO runs from 2026-08-29, `Version sync` AND `CI`. This said "expect one run
+  named `Version sync`" until then, so following it now reads as an unexplained extra run, which is
+  the same fail-toward-alarm decay the sentence above is about.** What has not changed is the thing
+  actually being asserted: there is no `Release` row.
 
   ```bash
   SHA=$(git -C ~/GitHub/n8n rev-parse HEAD)
@@ -69,7 +75,7 @@ one-off.
     --jq "[.[] | select(.headSha == \"$SHA\") | {workflowName, conclusion}]"
   ```
   A `Release` row against a branch push is the thing that would mean this permission has to be
-  re-examined. A `Version sync` row is normal and is not a publish.
+  re-examined. A `Version sync` or `CI` row is normal and is not a publish.
   **If that ever changes — any publish step wired to `main`, or the release workflow retriggered
   from a branch — this permission has to be re-examined, because the change would silently remove
   its only justification.**
@@ -96,6 +102,28 @@ one-off.
 - **n8n-workflow 2.x API note**: `NodeConnectionType` is type-only in 2.x; `inputs`/`outputs` use the literal `['main']` form (same runtime value as the old enum).
 - **Deferred lint rules**: `.eslintrc.json` disables six `n8n-nodes-base` rules that would force user-visible UI/behavior changes (option-sorting, maxValue removal, color widget, error classes) plus the URL-mangling `cred-class-field-documentation-url-miscased`. Re-enable during the `@n8n/node-cli` verified-node re-scaffold (issue #4 phase 2).
 - **Tests**: `npm test` runs Jest. 113 tests declared across 5 files, re-derived 2026-08-22: `test/credentials/TallyfyApi.credentials.test.ts` (5), `test/live/Tallyfy.live.test.ts` (20), `test/nodes/Tallyfy.node.test.ts` (61), `test/nodes/TallyfyTrigger.node.test.ts` (11), `test/scripts/check-changelog.test.ts` (16). The live file is gated behind `TALLYFY_LIVE=1` (`const d = LIVE ? describe : describe.skip`), so a plain `npm test` skips its 20 and reports **93 passed, 20 skipped** (observed, not inferred). Re-derive rather than trusting this count, since it decays the moment a test is added or removed: `grep -rcE '^[[:space:]]*it\(' test/**/*.test.ts`. ⚠️ **127 declared across 6 files as of 2026-08-28**, after `test/scripts/check-version-sync.test.ts` (14) was added by #39; a plain `npm test` now reports **107 passed, 20 skipped** (observed, not inferred). The 2026-08-22 figures above are correct for their date and are deliberately left as written rather than overwritten, which is the same reason the note below exists. ⚠️ **This bullet read 103 / 57 / 10 until 2026-08-22 and had already decayed on its own**: `Tallyfy.node.test.ts` had gained four tests that were never folded back in, so only 6 of the 10-test delta is the check-changelog work of #35. Exactly the decay the sentence above warns about, in the sentence that warns about it.
+- **Pull request and push gates** (`.github/workflows/ci.yml`, added 2026-08-29,
+  `tallyfy/work-queue#1174`): four jobs on every `pull_request` and every push to `main`, named
+  `lint`, `typecheck`, `test` and `build`. They run the same commands `release.yml` runs, on the
+  same Node version, so green here means those four steps in the publish are green for the same
+  commit. Before this, lint, the typecheck, the jest suite and the build all fired for the FIRST
+  time during the publish itself, which is irreversible.
+  **None of them is a required status check.** `main` has no branch protection at all: `gh api
+  repos/tallyfy/n8n/branches/main/protection` returns `404 Branch not protected`, which is a
+  different message from the `404 Branch not found` a fabricated branch returns. So these report
+  and cannot block, and that is a deliberate open question rather than an oversight (stated in
+  PR #42, not decided).
+  Two things worth knowing about them:
+  (1) `typecheck` runs `tsc --noEmit` over **both** `tsconfig.json` and `tsconfig.jest.json`, and
+  asserts the number of test files the second one covers. `tsconfig.jest.json` had an `include` of
+  `test/**/*.ts` that was **dead** until 2026-08-29: the base tsconfig's `exclude` of `test` and
+  `**/*.test.ts` is inherited and beats include, so tsc checked 3 files and never looked at a test
+  file. Overriding `exclude` there took it to 11. Do not remove that override.
+  (2) `build` counts the icons in `dist/nodes` against the icons in `nodes/`. `gulp build:icons`
+  uses a glob with magic characters, so it does **not** error on an empty match: it copies zero
+  files and exits 0. Measured 2026-08-29 with the glob deliberately pointed at nothing, `dist`
+  removed first: `npm run build` exited **0**. `release.yml` still has no such assertion, so the
+  publish path can still ship a package with no icon; that is `#43`.
 - **Release**: `.github/workflows/release.yml` publishes to npm **via trusted publishing (OIDC)** on
   `v*` tags, with provenance. Gates in order: **CHANGELOG entry check**, **lock-file version check**
   (`scripts/check-version-sync.sh`, added 2026-08-28, #39), npm upgrade, `npm ci`, lint,

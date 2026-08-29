@@ -1,0 +1,227 @@
+# Runs lint, typecheck, the jest suite and the build on every pull request and on every push to
+# main.
+#
+# Why this exists. Until 2026-08-28, release.yml was the only workflow in this repo and it fires
+# on `push: tags: v*` alone, so a pull request produced zero checks and a push to main produced
+# zero checks. version-sync.yml (#39) then added exactly one narrow check. Everything else, lint,
+# the build and the whole jest suite, still fired for the first time DURING the publish itself,
+# and a `v*` tag push here is an irreversible public npm publish. So the first time anyone learned
+# a change was red was while shipping it to the registry. This workflow moves those four gates in
+# front of the merge instead (tallyfy/work-queue#1174).
+#
+# A gate over an empty set is indistinguishable from a passing gate, so for most of this
+# repository's life "checks green" on a pull request meant nothing at all: there were none. Every
+# job below therefore asserts its inputs are non-empty before it asserts anything else.
+#
+# Why four separate jobs rather than four steps in one job. Each job is its own check context, so
+# a failure names the gate that failed without anyone opening a log, and any of them can later be
+# made a required context on main independently. The cost is four `npm ci` runs, which is free on
+# a public repository and runs in parallel.
+#
+# Deliberate parity with release.yml: same Node version, same `npm ci`, same `npm run lint`, same
+# `npm test`, same `npm run build`. If these four are green then the four equivalent steps inside
+# the publish are green for the same commit. Divergence between the two would defeat the point.
+#
+# Why the assertions are inline here, when scripts/check-changelog.sh and
+# scripts/check-version-sync.sh deliberately are not. Those two are only reachable by pushing a
+# `v*` tag, and a tag push publishes to npm immediately and irreversibly, so they could never be
+# exercised before being relied on and had to be testable offline. Every step in this file is
+# reachable by opening an ordinary pull request, so it can be, and was, driven red and green
+# before merge.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+# github.event_name is in the group key on purpose, so a pull_request run and a push run for the
+# same branch cannot share a group and cancel one another. cancel-in-progress is true only for
+# pull requests: on a push, head_ref is empty, so every merge would otherwise fall through to the
+# same ref_name key and each merge would cancel the previous merge's verdict. Same shape as
+# version-sync.yml, for the same reason.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `registry-url` here, on purpose. Setting it makes setup-node write
+      # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} into a temp .npmrc; with no token that
+      # expands to empty, npm treats auth as configured and skips the OIDC exchange. Only
+      # release.yml publishes, but keeping the two files identical on this point stops the habit
+      # from being copied into the one that does.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Assert dependencies are actually present
+        run: |
+          set -euo pipefail
+          COUNT=$(ls -1 node_modules | wc -l | tr -d ' ')
+          echo "node_modules entries: $COUNT"
+          if [ "$COUNT" -lt 100 ]; then
+            echo "node_modules holds $COUNT entries, so the check below would run against nothing" >&2
+            exit 1
+          fi
+
+      # Same command release.yml runs. eslint exits non-zero on errors only, so the nine
+      # pre-existing @typescript-eslint/no-explicit-any WARNINGS in Tallyfy.node.ts do not fail
+      # this job, exactly as they do not fail the publish. Tightening that is a separate decision
+      # and deliberately not made here.
+      - name: Lint
+        run: npm run lint
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Assert dependencies are actually present
+        run: |
+          set -euo pipefail
+          COUNT=$(ls -1 node_modules | wc -l | tr -d ' ')
+          echo "node_modules entries: $COUNT"
+          if [ "$COUNT" -lt 100 ]; then
+            echo "node_modules holds $COUNT entries, so the checks below would run against nothing" >&2
+            exit 1
+          fi
+          test -x ./node_modules/.bin/tsc
+
+      # Two projects, because they cover different files and neither alone is the whole tree.
+      # tsconfig.json is what the publish compiles: credentials/ and nodes/ only, since it
+      # excludes test. tsconfig.jest.json adds the test tree on top of that.
+      #
+      # The local binary is invoked by path rather than through npx. `npx tsc` in a tree with no
+      # node_modules does not fail with "command not found": it downloads an unrelated deprecated
+      # package literally named `tsc` and exits non-zero with a message about not being the tsc
+      # you are looking for, which reads as a broken branch rather than a broken setup.
+      - name: Typecheck the published sources
+        run: ./node_modules/.bin/tsc --noEmit -p tsconfig.json
+
+      - name: Typecheck the sources plus the test tree
+        run: ./node_modules/.bin/tsc --noEmit -p tsconfig.jest.json
+
+      # Non-vacuity guard for the step above, and it is not hypothetical. tsconfig.jest.json's
+      # `include` of test/**/*.ts was dead until this change: the base tsconfig's `exclude` of
+      # "test" and "**/*.test.ts" is inherited and cancels it, so tsc silently checked 3 files,
+      # reported success, and never looked at a single test file. That is the exact shape this
+      # workflow exists to stop, so the count is asserted rather than trusted.
+      - name: Assert the test tree really is in that second project
+        run: |
+          set -euo pipefail
+          LISTED=$(mktemp)
+          ./node_modules/.bin/tsc -p tsconfig.jest.json --listFilesOnly > "$LISTED"
+          COVERED=$(grep -c "/test/" "$LISTED" || echo 0)
+          DECLARED=$(find test -name '*.ts' -type f | wc -l | tr -d ' ')
+          echo "test/*.ts on disk: $DECLARED   type-checked by tsconfig.jest.json: $COVERED"
+          if [ "$DECLARED" -eq 0 ]; then
+            echo "found no .ts under test/, so the comparison below would be vacuous" >&2
+            exit 1
+          fi
+          if [ "$COVERED" -ne "$DECLARED" ]; then
+            echo "tsconfig.jest.json type-checks $COVERED of $DECLARED test files" >&2
+            echo "an inherited 'exclude' is most likely cancelling its 'include' again" >&2
+            exit 1
+          fi
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Assert dependencies are actually present
+        run: |
+          set -euo pipefail
+          COUNT=$(ls -1 node_modules | wc -l | tr -d ' ')
+          echo "node_modules entries: $COUNT"
+          if [ "$COUNT" -lt 100 ]; then
+            echo "node_modules holds $COUNT entries, so the suite below would run against nothing" >&2
+            exit 1
+          fi
+
+      # TALLYFY_LIVE is deliberately unset, so test/live/Tallyfy.live.test.ts stays skipped and no
+      # staging credentials or network access are needed. Same as release.yml.
+      - name: Test
+        run: npm test
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Assert dependencies are actually present
+        run: |
+          set -euo pipefail
+          COUNT=$(ls -1 node_modules | wc -l | tr -d ' ')
+          echo "node_modules entries: $COUNT"
+          if [ "$COUNT" -lt 100 ]; then
+            echo "node_modules holds $COUNT entries, so the build below would run against nothing" >&2
+            exit 1
+          fi
+
+      # `npm run build` is `tsc && gulp build:icons`. The gulp half had never been exercised by
+      # anything before this workflow.
+      - name: Build
+        run: npm run build
+
+      # `gulp build:icons` copies nodes/**/*.svg into dist/nodes. That glob contains magic
+      # characters, so gulp does NOT error when it matches nothing: it copies zero files and exits
+      # 0. A bare `npm run build` therefore cannot distinguish a working icon copy from one that
+      # silently produced an empty set, and a published package whose node has no icon is a real
+      # user-facing defect. So the output is counted against the input instead.
+      - name: Assert the icon copy produced files
+        run: |
+          set -euo pipefail
+          SRC=$(find nodes -name '*.svg' -type f | wc -l | tr -d ' ')
+          OUT=$(find dist/nodes -name '*.svg' -type f | wc -l | tr -d ' ')
+          echo "icons in nodes/: $SRC   icons in dist/nodes/: $OUT"
+          if [ "$SRC" -eq 0 ]; then
+            echo "found no source icons, so the comparison below would be vacuous" >&2
+            exit 1
+          fi
+          if [ "$OUT" -ne "$SRC" ]; then
+            echo "gulp build:icons copied $OUT of $SRC icons" >&2
+            exit 1
+          fi
