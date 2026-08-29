@@ -195,9 +195,3 @@ describe('TallyfyTrigger - instant webhook event filtering', () => {
 		expect(result.workflowData![0][0].json).toEqual({ event: 'task.assigned' });
 	});
 });
-
-describe('ci red arm 3', () => {
-	it('asserts something deliberately false', () => {
-		expect(1).toBe(2);
-	});
-});
