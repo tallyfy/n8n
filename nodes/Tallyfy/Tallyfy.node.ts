@@ -1,4 +1,3 @@
-// @ts-ignore
 import { NodeOperationError } from 'n8n-workflow';
 import type {
 	IExecuteFunctions,
