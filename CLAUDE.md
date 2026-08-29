@@ -45,11 +45,31 @@ one-off.
 - **Claude may merge PRs and push directly to `main` in this repo (owner decision 2026-08-04).** This is one of only two repos in the Tallyfy
   estate where that covers **code**, not just documentation; everywhere else code needs a PR.
   **The reason it is safe, and the only reason: pushing to a BRANCH publishes nothing.**
-  `.github/workflows/release.yml` is the only workflow in the repo and it triggers on
-  `push: tags: ['v*']`, never on a branch, so a commit landing on `main` starts zero workflow runs.
+  `.github/workflows/release.yml` is the only workflow that PUBLISHES anything, and it triggers on
+  `push: tags: ['v*']`, never on a branch.
   The droplet has no CI/CD either ("**CI/CD**: None — deployed manually", under Production
-  Deployment). Confirm a push was inert with
-  `gh run list --repo tallyfy/n8n --limit 5 --json headSha,workflowName` and expect your SHA absent.
+  Deployment).
+
+  ⚠️ **"a commit landing on `main` starts zero workflow runs" was TRUE until 2026-08-28 and is now
+  FALSE. Do not read a workflow run on your own SHA as evidence that something published.**
+  `.github/workflows/version-sync.yml` (#39) runs on every push to `main` and on every pull
+  request. It checks out the repo, installs nothing, and runs one script that compares the version
+  in `package.json` against the two root version fields in `package-lock.json`. It publishes
+  nothing and writes nothing. **The permission's justification is unchanged**, because the
+  justification is that no branch push PUBLISHES, not that no branch push runs anything at all.
+
+  **The confirmation command changed with it, and the old one now fails toward alarm.** It was
+  `gh run list --repo tallyfy/n8n --limit 5 --json headSha,workflowName`, expecting your SHA
+  absent, which from 2026-08-28 reads as "something ran, so my push was not inert" on every single
+  push. Expect one run named `Version sync`, and assert there is no `Release` row:
+
+  ```bash
+  SHA=$(git -C ~/GitHub/n8n rev-parse HEAD)
+  gh run list --repo tallyfy/n8n --limit 20 --json headSha,workflowName,conclusion \
+    --jq "[.[] | select(.headSha == \"$SHA\") | {workflowName, conclusion}]"
+  ```
+  A `Release` row against a branch push is the thing that would mean this permission has to be
+  re-examined. A `Version sync` row is normal and is not a publish.
   **If that ever changes — any publish step wired to `main`, or the release workflow retriggered
   from a branch — this permission has to be re-examined, because the change would silently remove
   its only justification.**
@@ -75,11 +95,15 @@ one-off.
 - **Toolchain**: `n8n-workflow` ^2.16.0 (dev + peer), `engines.node` >=20.15, ESLint 8 + `@typescript-eslint` 8 + `eslint-plugin-n8n-nodes-base` 1.16.7 (+ `jsonc-eslint-parser` for linting package.json). `npm run build` (tsc + gulp icons) and `npm run lint` are both green.
 - **n8n-workflow 2.x API note**: `NodeConnectionType` is type-only in 2.x; `inputs`/`outputs` use the literal `['main']` form (same runtime value as the old enum).
 - **Deferred lint rules**: `.eslintrc.json` disables six `n8n-nodes-base` rules that would force user-visible UI/behavior changes (option-sorting, maxValue removal, color widget, error classes) plus the URL-mangling `cred-class-field-documentation-url-miscased`. Re-enable during the `@n8n/node-cli` verified-node re-scaffold (issue #4 phase 2).
-- **Tests**: `npm test` runs Jest. 113 tests declared across 5 files, re-derived 2026-08-22: `test/credentials/TallyfyApi.credentials.test.ts` (5), `test/live/Tallyfy.live.test.ts` (20), `test/nodes/Tallyfy.node.test.ts` (61), `test/nodes/TallyfyTrigger.node.test.ts` (11), `test/scripts/check-changelog.test.ts` (16). The live file is gated behind `TALLYFY_LIVE=1` (`const d = LIVE ? describe : describe.skip`), so a plain `npm test` skips its 20 and reports **93 passed, 20 skipped** (observed, not inferred). Re-derive rather than trusting this count, since it decays the moment a test is added or removed: `grep -rcE '^[[:space:]]*it\(' test/**/*.test.ts`. ⚠️ **This bullet read 103 / 57 / 10 until 2026-08-22 and had already decayed on its own**: `Tallyfy.node.test.ts` had gained four tests that were never folded back in, so only 6 of the 10-test delta is the check-changelog work of #35. Exactly the decay the sentence above warns about, in the sentence that warns about it.
+- **Tests**: `npm test` runs Jest. 113 tests declared across 5 files, re-derived 2026-08-22: `test/credentials/TallyfyApi.credentials.test.ts` (5), `test/live/Tallyfy.live.test.ts` (20), `test/nodes/Tallyfy.node.test.ts` (61), `test/nodes/TallyfyTrigger.node.test.ts` (11), `test/scripts/check-changelog.test.ts` (16). The live file is gated behind `TALLYFY_LIVE=1` (`const d = LIVE ? describe : describe.skip`), so a plain `npm test` skips its 20 and reports **93 passed, 20 skipped** (observed, not inferred). Re-derive rather than trusting this count, since it decays the moment a test is added or removed: `grep -rcE '^[[:space:]]*it\(' test/**/*.test.ts`. ⚠️ **127 declared across 6 files as of 2026-08-28**, after `test/scripts/check-version-sync.test.ts` (14) was added by #39; a plain `npm test` now reports **107 passed, 20 skipped** (observed, not inferred). The 2026-08-22 figures above are correct for their date and are deliberately left as written rather than overwritten, which is the same reason the note below exists. ⚠️ **This bullet read 103 / 57 / 10 until 2026-08-22 and had already decayed on its own**: `Tallyfy.node.test.ts` had gained four tests that were never folded back in, so only 6 of the 10-test delta is the check-changelog work of #35. Exactly the decay the sentence above warns about, in the sentence that warns about it.
 - **Release**: `.github/workflows/release.yml` publishes to npm **via trusted publishing (OIDC)** on
-  `v*` tags, with provenance. Gates in order: **CHANGELOG entry check**, npm upgrade, `npm ci`, lint,
+  `v*` tags, with provenance. Gates in order: **CHANGELOG entry check**, **lock-file version check**
+  (`scripts/check-version-sync.sh`, added 2026-08-28, #39), npm upgrade, `npm ci`, lint,
   build, test, tag/version match, publish. The CHANGELOG check runs first because it needs only the
-  checkout, so a malformed release fails in seconds instead of after a full install and build.
+  checkout, so a malformed release fails in seconds instead of after a full install and build. The
+  lock-file check sits before `npm ci` because `npm ci` cannot catch what it looks for: npm's sync
+  check compares dependencies only, and it exited 0 on the drifted pair while a control desyncing a
+  real dependency exited 1 with `EUSAGE`.
   **There is no publish credential.** The workflow exchanges its `id-token` for a
   short-lived one; `release.yml` contains no `secrets.` reference at all, and the old `NPM_TOKEN`
   repo secret was **deleted 2026-08-08** (`gh api repos/tallyfy/n8n/actions/secrets` → `total_count: 0`).

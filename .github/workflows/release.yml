@@ -85,6 +85,28 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Stops a release whose package-lock.json states a different version from package.json.
+      # That is the state main was in from 1.1.2 until 2026-08-28: package.json said 1.1.3 and
+      # both of the lock file's root version fields said 1.1.1 (tallyfy/n8n#39).
+      #
+      # It runs before npm ci rather than after, because npm ci does NOT catch this and would
+      # give a false all-clear. Measured on the drifted pair: `npm ci` exited 0 and installed 797
+      # packages. Its sync check compares DEPENDENCIES only. The control on the same command,
+      # package.json asking for jest ^28.0.0 against a lock pinning 29.7.0, exited 1 with EUSAGE
+      # "can only install packages when your package.json and package-lock.json ... are in sync".
+      # So the two separate, and the root version field is outside what npm validates.
+      #
+      # .github/workflows/version-sync.yml runs the same script on every push and pull request,
+      # which is where this should normally be caught. This copy is the backstop on the one path
+      # that is irreversible: a v* tag push publishes to npm, and the lock file goes into the
+      # published tarball.
+      #
+      # The logic lives in a script for the same reason the CHANGELOG check does: a workflow step
+      # here can only be exercised by pushing a tag, and that publishes. It is exercised offline
+      # by test/scripts/check-version-sync.test.ts.
+      - name: Verify package-lock.json version matches package.json
+        run: scripts/check-version-sync.sh
+
       # Trusted publishing (OIDC) needs npm >= 11.5.1 and Node 22 ships an older npm, so the
       # runner's bundled version is not enough. Without this the publish step falls back to
       # looking for a token and fails with E401/E403 rather than anything that names OIDC.
