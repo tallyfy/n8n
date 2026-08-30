@@ -22,12 +22,16 @@
 # `npm test`, same `npm run build`. If these four are green then the four equivalent steps inside
 # the publish are green for the same commit. Divergence between the two would defeat the point.
 #
-# Why the assertions are inline here, when scripts/check-changelog.sh and
-# scripts/check-version-sync.sh deliberately are not. Those two are only reachable by pushing a
-# `v*` tag, and a tag push publishes to npm immediately and irreversibly, so they could never be
-# exercised before being relied on and had to be testable offline. Every step in this file is
-# reachable by opening an ordinary pull request, so it can be, and was, driven red and green
-# before merge.
+# Why most of the assertions are inline here, when scripts/check-changelog.sh,
+# scripts/check-version-sync.sh and scripts/check-icons.sh deliberately are not. Those three are
+# also run from release.yml, and a step there is only reachable by pushing a `v*` tag, which
+# publishes to npm immediately and irreversibly, so it could never be exercised before being
+# relied on and had to be testable offline. Every other step in this file is reachable by opening
+# an ordinary pull request, so it can be, and was, driven red and green before merge.
+#
+# The icon assertion moved out of this file into scripts/check-icons.sh on 2026-08-29
+# (tallyfy/n8n#43) for exactly that reason: the release path needed the same check, and keeping a
+# second inline copy there would have left the untestable copy to rot.
 
 name: CI
 
@@ -201,27 +205,26 @@ jobs:
             exit 1
           fi
 
-      # `npm run build` is `tsc && gulp build:icons`. The gulp half had never been exercised by
-      # anything before this workflow.
+      # `npm run build` is `tsc && gulp build:icons && scripts/check-icons.sh`. The gulp half had
+      # never been exercised by anything before this workflow, and the icon assertion is now part
+      # of the build script itself, so this step fails on a broken icon copy on its own.
       - name: Build
         run: npm run build
 
       # `gulp build:icons` copies nodes/**/*.svg into dist/nodes. That glob contains magic
       # characters, so gulp does NOT error when it matches nothing: it copies zero files and exits
-      # 0. A bare `npm run build` therefore cannot distinguish a working icon copy from one that
+      # 0. A bare `npm run build` therefore could not distinguish a working icon copy from one that
       # silently produced an empty set, and a published package whose node has no icon is a real
-      # user-facing defect. So the output is counted against the input instead.
-      - name: Assert the icon copy produced files
-        run: |
-          set -euo pipefail
-          SRC=$(find nodes -name '*.svg' -type f | wc -l | tr -d ' ')
-          OUT=$(find dist/nodes -name '*.svg' -type f | wc -l | tr -d ' ')
-          echo "icons in nodes/: $SRC   icons in dist/nodes/: $OUT"
-          if [ "$SRC" -eq 0 ]; then
-            echo "found no source icons, so the comparison below would be vacuous" >&2
-            exit 1
-          fi
-          if [ "$OUT" -ne "$SRC" ]; then
-            echo "gulp build:icons copied $OUT of $SRC icons" >&2
-            exit 1
-          fi
+      # user-facing defect (tallyfy/n8n#43).
+      #
+      # This was an inline block until 2026-08-29. It is a script now because release.yml needs the
+      # same assertion on the one path that is irreversible, and a step there can only be exercised
+      # by pushing a v* tag, which publishes. Two copies of the same logic in two workflows would
+      # drift, and the copy in the file nobody can test is the one that would rot. The script is
+      # exercised offline by test/scripts/check-icons.test.ts, so `npm test` covers it too.
+      #
+      # Kept as its own step even though `npm run build` above already runs it. It costs a second,
+      # it names the gate in the log without anyone opening the Build step, and it still fires if
+      # the build script is ever edited to drop the check.
+      - name: Assert the icon copy reproduced the source set
+        run: scripts/check-icons.sh
