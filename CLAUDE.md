@@ -98,10 +98,10 @@ one-off.
 
 ## Development (modernized 2026-07 — tallyfy/n8n#4)
 
-- **Toolchain**: `n8n-workflow` ^2.16.0 (dev + peer), `engines.node` >=20.15, ESLint 8 + `@typescript-eslint` 8 + `eslint-plugin-n8n-nodes-base` 1.16.7 (+ `jsonc-eslint-parser` for linting package.json). `npm run build` (tsc + gulp icons) and `npm run lint` are both green.
+- **Toolchain**: `n8n-workflow` ^2.16.0 (dev + peer), `engines.node` >=20.15, ESLint 8 + `@typescript-eslint` 8 + `eslint-plugin-n8n-nodes-base` 1.16.7 (+ `jsonc-eslint-parser` for linting package.json). `npm run build` and `npm run lint` are both green. ⚠️ **This said `npm run build` is "(tsc + gulp icons)" until 2026-08-30 and it has not been those two alone since #43.** It is now four steps in this order: `scripts/check-tsconfig-includes.sh && tsc && gulp build:icons && scripts/check-icons.sh`. The include check runs **first** on purpose, so a config that has stopped naming the sources fails in a second rather than after a full compile that would have exited 0 anyway (#45). Derive it rather than trusting this line: `jq -r .scripts.build package.json`.
 - **n8n-workflow 2.x API note**: `NodeConnectionType` is type-only in 2.x; `inputs`/`outputs` use the literal `['main']` form (same runtime value as the old enum).
 - **Deferred lint rules**: `.eslintrc.json` disables six `n8n-nodes-base` rules that would force user-visible UI/behavior changes (option-sorting, maxValue removal, color widget, error classes) plus the URL-mangling `cred-class-field-documentation-url-miscased`. Re-enable during the `@n8n/node-cli` verified-node re-scaffold (issue #4 phase 2).
-- **Tests**: `npm test` runs Jest. 113 tests declared across 5 files, re-derived 2026-08-22: `test/credentials/TallyfyApi.credentials.test.ts` (5), `test/live/Tallyfy.live.test.ts` (20), `test/nodes/Tallyfy.node.test.ts` (61), `test/nodes/TallyfyTrigger.node.test.ts` (11), `test/scripts/check-changelog.test.ts` (16). The live file is gated behind `TALLYFY_LIVE=1` (`const d = LIVE ? describe : describe.skip`), so a plain `npm test` skips its 20 and reports **93 passed, 20 skipped** (observed, not inferred). Re-derive rather than trusting this count, since it decays the moment a test is added or removed: `grep -rcE '^[[:space:]]*it\(' test/**/*.test.ts`. ⚠️ **127 declared across 6 files as of 2026-08-28**, after `test/scripts/check-version-sync.test.ts` (14) was added by #39; a plain `npm test` now reports **107 passed, 20 skipped** (observed, not inferred). ⚠️ **141 declared across 7 files as of 2026-08-29**, after `test/scripts/check-icons.test.ts` (14) was added by #43; a plain `npm test` now reports **121 passed, 20 skipped** (observed, not inferred). The 2026-08-22 figures above are correct for their date and are deliberately left as written rather than overwritten, which is the same reason the note below exists. ⚠️ **This bullet read 103 / 57 / 10 until 2026-08-22 and had already decayed on its own**: `Tallyfy.node.test.ts` had gained four tests that were never folded back in, so only 6 of the 10-test delta is the check-changelog work of #35. Exactly the decay the sentence above warns about, in the sentence that warns about it.
+- **Tests**: `npm test` runs Jest. 113 tests declared across 5 files, re-derived 2026-08-22: `test/credentials/TallyfyApi.credentials.test.ts` (5), `test/live/Tallyfy.live.test.ts` (20), `test/nodes/Tallyfy.node.test.ts` (61), `test/nodes/TallyfyTrigger.node.test.ts` (11), `test/scripts/check-changelog.test.ts` (16). The live file is gated behind `TALLYFY_LIVE=1` (`const d = LIVE ? describe : describe.skip`), so a plain `npm test` skips its 20 and reports **93 passed, 20 skipped** (observed, not inferred). Re-derive rather than trusting this count, since it decays the moment a test is added or removed: `grep -rcE '^[[:space:]]*it\(' test/**/*.test.ts`. ⚠️ **127 declared across 6 files as of 2026-08-28**, after `test/scripts/check-version-sync.test.ts` (14) was added by #39; a plain `npm test` now reports **107 passed, 20 skipped** (observed, not inferred). ⚠️ **141 declared across 7 files as of 2026-08-29**, after `test/scripts/check-icons.test.ts` (14) was added by #43; a plain `npm test` now reports **121 passed, 20 skipped** (observed, not inferred). ⚠️ **173 declared across 9 files as of 2026-08-30**, after `test/scripts/check-tsconfig-includes.test.ts` (18) and `test/scripts/check-pack-contents.test.ts` (14) were added by #45; a plain `npm test` now reports **153 passed, 20 skipped** (observed, not inferred). The 2026-08-22 figures above are correct for their date and are deliberately left as written rather than overwritten, which is the same reason the note below exists. ⚠️ **This bullet read 103 / 57 / 10 until 2026-08-22 and had already decayed on its own**: `Tallyfy.node.test.ts` had gained four tests that were never folded back in, so only 6 of the 10-test delta is the check-changelog work of #35. Exactly the decay the sentence above warns about, in the sentence that warns about it.
 - **Pull request and push gates** (`.github/workflows/ci.yml`, added 2026-08-29,
   `tallyfy/work-queue#1174`): four jobs on every `pull_request` and every push to `main`, named
   `lint`, `typecheck`, `test` and `build`. They run the same commands `release.yml` runs, on the
@@ -114,7 +114,8 @@ one-off.
   and cannot block, and that is a deliberate open question rather than an oversight (stated in
   PR #42, not decided).
   Two things worth knowing about them:
-  (1) `typecheck` runs `tsc --noEmit` over **both** `tsconfig.json` and `tsconfig.jest.json`, and
+  (1) `typecheck` runs `scripts/check-tsconfig-includes.sh` first (added 2026-08-30, #45), then
+  `tsc --noEmit` over **both** `tsconfig.json` and `tsconfig.jest.json`, and
   asserts the number of test files the second one covers. `tsconfig.jest.json` had an `include` of
   `test/**/*.ts` that was **dead** until 2026-08-29: the base tsconfig's `exclude` of `test` and
   `**/*.test.ts` is inherited and beats include, so tsc checked 3 files and never looked at a test
@@ -130,16 +131,43 @@ one-off.
   step, so the publish path no longer lacks it. It compares relative path SETS, not only counts,
   so a stale `dist` holding the same number of differently named files fails too, and it exits 2
   rather than 0 when there are no source icons, since zero would otherwise equal zero forever.
-  ⚠️ Two siblings measured the same day and **not** fixed: one `include` in `tsconfig.json`
+  ⚠️ Two siblings measured the same day and **not** fixed then: one `include` in `tsconfig.json`
   matching nothing is silent (`tsc` raises TS18003 only when **every** include is empty, measured
   rc 0 against rc 2, and `nodes/**/*.json` matches zero files today), and `npm pack --dry-run`
   with no `dist` at all exits **0** and builds a four file tarball carrying no code. `jest` and
   `eslint` both fail closed on an empty match, so the list is not one sided.
+  ✅ **BOTH CLOSED 2026-08-30 by `#45`. The measurements above are correct for their date and are
+  left as written; do not overwrite them.** Both findings were re-derived independently before
+  being fixed rather than carried over, and both agreed. Two more scripts, same shape and same
+  exit codes as `check-icons.sh`, 0 agree / 1 disagree / 2 could not answer:
+  - `scripts/check-tsconfig-includes.sh` requires every `include` pattern in every
+    `tsconfig*.json` to match at least one file. It asks TypeScript's own resolver rather than
+    reimplementing its glob rules, so it agrees with the compiler by construction, and it
+    **discovers** the configs instead of holding a list. `nodes/**/*.json` was removed in the same
+    change, so the gate is green on a correct tree rather than red from the day it landed;
+    `tsc --listFilesOnly` reports the same 3 files before and after. Runs first in
+    `package.json`'s `build`, in `ci.yml`'s `typecheck` job, and in `release.yml` after `npm ci`.
+  - `scripts/check-pack-contents.sh` requires every path under `package.json`'s `n8n.nodes` and
+    `n8n.credentials` to be in the manifest `npm pack --dry-run --json` produces. It asserts the
+    tarball **contents**, never `npm pack`'s exit code, because the exit code is the thing that is
+    wrong. Note what would NOT work: "the tarball holds a `.js`" passes on an unbuilt tree, since
+    `index.js` is at the package root and npm always includes the file named by `main`. Runs in
+    `prepublishOnly` after the build, which closes the last unguarded path (`npm publish` by hand
+    from a tree that was never built), in `ci.yml`'s `build` job, and in `release.yml` after
+    `Build`.
 - **Release**: `.github/workflows/release.yml` publishes to npm **via trusted publishing (OIDC)** on
   `v*` tags, with provenance. Gates in order: **CHANGELOG entry check**, **lock-file version check**
-  (`scripts/check-version-sync.sh`, added 2026-08-28, #39), npm upgrade, `npm ci`, lint,
-  build, **icon copy check** (`scripts/check-icons.sh`, added 2026-08-29, #43), test,
-  tag/version match, publish. The CHANGELOG check runs first because it needs only the
+  (`scripts/check-version-sync.sh`, added 2026-08-28, #39), npm upgrade, `npm ci`,
+  **tsconfig include check** (`scripts/check-tsconfig-includes.sh`, added 2026-08-30, #45), lint,
+  build, **icon copy check** (`scripts/check-icons.sh`, added 2026-08-29, #43),
+  **pack contents check** (`scripts/check-pack-contents.sh`, added 2026-08-30, #45), test,
+  tag/version match, publish. Derive the list rather than trusting it, since it grows:
+  `yq '.jobs.publish.steps[].name' .github/workflows/release.yml`, or read the file.
+  The include check sits right after `npm ci` because that is the earliest point it can run, it
+  needs the local `typescript`, and it names a broken include directly where lint and build would
+  report the wrong cause or nothing at all. The pack check sits after `Build` because it asserts
+  what the build produced, read from npm's own manifest rather than inferred from the build having
+  exited 0. The CHANGELOG check runs first because it needs only the
   checkout, so a malformed release fails in seconds instead of after a full install and build. The
   lock-file check sits before `npm ci` because `npm ci` cannot catch what it looks for: npm's sync
   check compares dependencies only, and it exited 0 on the drifted pair while a control desyncing a

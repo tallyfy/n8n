@@ -142,7 +142,9 @@ exists) and its own tag. Nobody has decided to cut it yet.
   exercised by pushing a tag and that publishes.
 
   Two other places in the build have the same shape, both measured on 2026-08-29 rather than
-  assumed, and neither is fixed here:
+  assumed. Neither was fixed here; **both were fixed shortly afterwards under #45**, see the entry
+  below. They are left described as they stood, because the point is that a glob which silently
+  matches nothing is rarely alone:
 
   - **`tsconfig.json`'s `include` list.** `tsc` raises TS18003 only when **every** include matches
     nothing (measured: rc 2). One include matching nothing among several is silent (measured:
@@ -157,6 +159,61 @@ exists) and its own tag. Nobody has decided to cut it yet.
   `jest` exits 1 with "No tests found" when its pattern matches nothing (`passWithNoTests` is not
   set), and `eslint` exits 2 with "No files matching the pattern" on a directory holding nothing
   lintable. Both fail closed.
+
+- The two remaining places the #43 entry above left open are now closed, with a gate each, and
+  `tsconfig.json` no longer carries a pattern that matches nothing. (#45)
+
+  **A tsconfig `include` matching nothing.** `tsc` raises TS18003 "No inputs were found" only when
+  **every** include pattern matches nothing. One dead pattern among several is silent and the
+  compile exits 0. Re-derived 2026-08-30 with all three arms on one invocation, rather than
+  carried over from the #43 measurement: two real includes plus one bogus one gave **rc 0** and no
+  output, a single bogus include gave **rc 2** and TS18003, and a single real include gave rc 0.
+  The middle arm is what proves `tsc` can complain at all, and neither control alone separates the
+  two cases. `tsconfig.json`'s `nodes/**/*.json` was the live instance, matching 0 files
+  (`find nodes -name '*.json' -type f` returned 0, against a positive control of `nodes/**/*.ts`
+  returning 2 through the same probe). It is removed, which changes nothing that is compiled:
+  `tsc --listFilesOnly` reports the same 3 files before and after, and `resolveJsonModule` pulls an
+  imported `.json` into the program without it being in `include`.
+
+  The consequence that gate protects against is a rename or move of `nodes/`: `nodes/**/*.ts`
+  would match nothing, `credentials/**/*.ts` would keep the input set non-empty so TS18003 never
+  fires, and `tsc` would emit no node at all while exiting 0, leaving `package.json`'s `n8n.nodes`
+  naming two files that do not exist.
+
+  `scripts/check-tsconfig-includes.sh` asks TypeScript's own resolver rather than reimplementing
+  its glob rules: `ts.getParsedCommandLineOfConfigFile` reads each config, jsonc comments and
+  `extends` included, then each include pattern is put through `ts.parseJsonConfigFileContent` on
+  its own carrying the config's effective `exclude`, and the resulting `fileNames` are counted. So
+  a pattern whose every match is excluded counts as zero, which is correct. It **discovers** every
+  `tsconfig*.json` in the repository root rather than holding a literal list, so a config added
+  later is covered without editing it.
+
+  **`npm pack` with no `dist`.** `scripts/check-pack-contents.sh` asserts the tarball **contents**,
+  never `npm pack`'s exit code, because the exit code is the thing that is wrong. It requires every
+  path under `package.json`'s `n8n.nodes` and `n8n.credentials` to appear in the manifest
+  `npm pack --dry-run --json` produces, named rather than counted. "The tarball holds a `.js`"
+  would not do: `index.js` is at the package root and npm always includes the file named by `main`,
+  so that assertion passes on the four-entry tarball an unbuilt tree produces.
+
+  Both gates were shown in **both directions on the same run**. `check-tsconfig-includes.sh` exits
+  **1** on the tree carrying `nodes/**/*.json` and names it, and **0** once it is removed;
+  reintroducing the pattern by hand into a copy of the tree returns it to 1. `check-pack-contents.sh`
+  exits **0** on the built tree, reporting all 3 declared entry points present in a 14 file tarball,
+  and **1** on the same tree with `dist` removed, naming all three missing paths against a listing of
+  the 4 files that would actually ship. Each refuses to answer, **exit 2**, rather than passing when
+  its input set is empty: no config declaring an `include`, and no declared entry point respectively,
+  because in both cases the comparison would otherwise succeed while examining nothing. Exit codes
+  match the sibling gates: 0 agree, 1 disagree, 2 could not answer.
+
+  Between them they run in five places. `check-tsconfig-includes.sh` runs first in `package.json`'s
+  `build`, so it fails in a second rather than after a full compile; in `ci.yml`'s `typecheck` job;
+  and in `release.yml` right after `npm ci`. `check-pack-contents.sh` runs in `package.json`'s
+  `prepublishOnly` after the build, which closes the last unguarded path the #43 entry named,
+  `npm publish` run by hand from a tree that was never built; in `ci.yml`'s `build` job; and in
+  `release.yml` after its `Build` step. Their behaviour is proven offline by
+  `test/scripts/check-tsconfig-includes.test.ts` (18 tests) and
+  `test/scripts/check-pack-contents.test.ts` (14 tests), because a step in `release.yml` can only
+  be exercised by pushing a `v*` tag and that publishes.
 
 ## [1.1.3] - 2026-08-10
 

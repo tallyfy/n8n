@@ -115,6 +115,31 @@ jobs:
           fi
           test -x ./node_modules/.bin/tsc
 
+      # `tsc` raises TS18003 "No inputs were found" only when EVERY include pattern in a config
+      # matches nothing. One dead pattern among several is completely silent and the compile exits
+      # 0, so the two tsc steps below would both be green on a config that has stopped describing
+      # where the sources are (tallyfy/n8n#45). Measured 2026-08-30, three arms on one invocation:
+      # two real includes plus one bogus one gave rc 0 and no output, a single bogus include gave
+      # rc 2 and TS18003, a single real include gave rc 0. The live instance was
+      # `nodes/**/*.json` in tsconfig.json matching 0 files, removed in the same change.
+      #
+      # It runs FIRST in this job, before either tsc, for the same reason the CHANGELOG check runs
+      # first in release.yml: it names the broken pattern directly, where the tsc steps would
+      # either say nothing or fail somewhere downstream of the real cause.
+      #
+      # The logic is in a script rather than inline because release.yml needs the same assertion
+      # on the one path that is irreversible, and a step there can only be exercised by pushing a
+      # v* tag, which publishes to npm. Two copies in two workflows would drift and the untestable
+      # one would rot. Exercised offline by test/scripts/check-tsconfig-includes.test.ts, so
+      # `npm test` covers it too.
+      #
+      # This is deliberately redundant with package.json's "build", which now also runs it first.
+      # The redundancy is the point: this step still fires if the build script is ever edited to
+      # drop the check, which is the single edit that would silently reopen the hole. Same argument
+      # release.yml already makes for check-icons.sh.
+      - name: Assert every tsconfig include pattern matches at least one file
+        run: scripts/check-tsconfig-includes.sh
+
       # Two projects, because they cover different files and neither alone is the whole tree.
       # tsconfig.json is what the publish compiles: credentials/ and nodes/ only, since it
       # excludes test. tsconfig.jest.json adds the test tree on top of that.
@@ -228,3 +253,23 @@ jobs:
       # the build script is ever edited to drop the check.
       - name: Assert the icon copy reproduced the source set
         run: scripts/check-icons.sh
+
+      # package.json carries `"files": ["dist"]` and dist is a gitignored build output, so
+      # `npm pack` on a tree that was never built does not complain. It builds a tarball out of
+      # the metadata npm always includes and exits 0. Measured 2026-08-30 on a clean checkout,
+      # both arms of the same probe: with no dist, rc 0 and 4 entries, LICENSE, README.md,
+      # index.js and package.json; with dist present, rc 0 and 14 entries. So npm would publish a
+      # package containing none of the code and report success (tallyfy/n8n#45).
+      #
+      # This asserts the tarball CONTENTS, not npm pack's exit code, because the exit code is the
+      # thing that is wrong. What it requires is every path under package.json's `n8n.nodes` and
+      # `n8n.credentials`, named rather than counted. "the tarball holds a .js" would not do:
+      # index.js is at the package root and npm always includes the file named by `main`, so that
+      # assertion passes on the 4-entry tarball above.
+      #
+      # It runs after Build on purpose, since it is asserting what the build produced. The logic is
+      # in a script for the same reason check-icons.sh is: release.yml needs it on the irreversible
+      # path and a step there can only be exercised by publishing. Exercised offline by
+      # test/scripts/check-pack-contents.test.ts.
+      - name: Assert the tarball would contain the declared entry points
+        run: scripts/check-pack-contents.sh
