@@ -24,8 +24,7 @@
   },
   "include": [
     "credentials/**/*.ts",
-    "nodes/**/*.ts",
-    "nodes/**/*.json"
+    "nodes/**/*.ts"
   ],
   "exclude": [
     "node_modules",

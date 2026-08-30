@@ -118,6 +118,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Stops a release compiled from a tsconfig that has stopped describing where the sources
+      # are. `tsc` raises TS18003 "No inputs were found" only when EVERY include pattern matches
+      # nothing, so one dead pattern among several compiles silently and exits 0 (tallyfy/n8n#45).
+      # Measured 2026-08-30, three arms on one invocation: two real includes plus one bogus one
+      # gave rc 0 and no output, a single bogus include gave rc 2 and TS18003, a single real
+      # include gave rc 0.
+      #
+      # The case that matters here is a rename or move of `nodes/`: `nodes/**/*.ts` would match
+      # nothing, `credentials/**/*.ts` would keep the input set non-empty so TS18003 never fires,
+      # and the Build step below would emit no node at all while exiting 0. package.json's
+      # `n8n.nodes` would then name two files that are not in the tarball.
+      #
+      # It runs before Lint and Build rather than after, because it needs only the install and it
+      # names the broken pattern directly. Failing here costs seconds instead of a full lint,
+      # build and test run that would report the wrong cause or nothing at all.
+      #
+      # .github/workflows/ci.yml runs the same script on every pull request and every push to
+      # main, and a release tag is normally cut from main, which is where this should normally be
+      # caught. This copy is the backstop on the one path that is irreversible: a v* tag push
+      # publishes to npm, and a tag can be cut from a commit that never ran CI. Same argument the
+      # CHANGELOG, lock-file and icon checks above and below already make for themselves.
+      #
+      # The logic lives in a script for the same reason the others do: a step here can only be
+      # exercised by pushing a tag, and that publishes. It is exercised offline by
+      # test/scripts/check-tsconfig-includes.test.ts.
+      - name: Verify every tsconfig include pattern matches at least one file
+        run: scripts/check-tsconfig-includes.sh
+
       - name: Lint
         run: npm run lint
 
@@ -148,6 +176,35 @@ jobs:
       # test/scripts/check-icons.test.ts.
       - name: Verify the icon copy reproduced the source set
         run: scripts/check-icons.sh
+
+      # Stops a release whose tarball holds none of the code. package.json carries
+      # `"files": ["dist"]`, dist is a gitignored build output, and `npm pack` on a tree that was
+      # never built does not complain: it packs the metadata npm always includes and exits 0.
+      # Measured 2026-08-30 on a clean checkout, both arms of the same probe: with no dist, rc 0
+      # and 4 entries, LICENSE, README.md, index.js and package.json; with dist present, rc 0 and
+      # 14 entries (tallyfy/n8n#45).
+      #
+      # The Build step above makes that unreachable on this path in the ordinary case, which is
+      # exactly why this is placed after it: this is the assertion that the build produced what
+      # is about to be published, taken from npm's own manifest for the tarball rather than
+      # inferred from the build having exited 0. It asserts the CONTENTS, never npm pack's exit
+      # code, because the exit code is the thing that is wrong.
+      #
+      # What it requires is every path under `n8n.nodes` and `n8n.credentials`, named rather than
+      # counted. "the tarball holds a .js" would not do: index.js is at the package root and npm
+      # always includes the file named by `main`, so that assertion passes on the 4-entry tarball
+      # above.
+      #
+      # .github/workflows/ci.yml runs the same script on every pull request and every push to
+      # main. package.json's "prepublishOnly" runs it too, after the build, so `npm publish` run
+      # by hand from an unbuilt tree is covered as well. This copy is the backstop on the one path
+      # that is irreversible, the same argument the four checks around it already make.
+      #
+      # The logic lives in a script for the same reason the others do: a step here can only be
+      # exercised by pushing a tag, and that publishes. It is exercised offline by
+      # test/scripts/check-pack-contents.test.ts.
+      - name: Verify the tarball would contain the declared entry points
+        run: scripts/check-pack-contents.sh
 
       # Runs the mocked unit suite only: the live integration suite is gated behind
       # TALLYFY_LIVE=1 (unset here), so no staging credentials or network are needed.
