@@ -107,9 +107,56 @@ exists) and its own tag. Nobody has decided to cut it yet.
 
   This is also the repo's first workflow that runs on anything other than a `v*` tag. Until now
   `release.yml` was the only workflow, so a pull request produced no checks at all and every gate
-  the repo had fired for the first time during the publish itself. Running lint, build and the
-  full test suite on pull requests is still not wired up, and is deliberately left as separate
-  work rather than folded in here.
+  the repo had fired for the first time during the publish itself. Lint, typecheck, the full test
+  suite and the build followed shortly after in `.github/workflows/ci.yml` (`1b9fff2`, PR #42),
+  which this sentence said was "still not wired up" until 2026-08-29.
+
+- `npm run build` now fails when the icon copy produces nothing. It is
+  `tsc && gulp build:icons && scripts/check-icons.sh`, and it was the first two of those only.
+  `gulp build:icons` is `src('nodes/**/*.svg').pipe(dest('dist/nodes'))`; a glob with magic
+  characters does not error when it matches nothing, so gulp copied zero files and exited 0, and
+  the build exited 0 with it. A `v*` tag push is an irreversible public npm publish and it runs
+  that build, so the release path could ship a package whose node has no icon and report success.
+  The build passing told you the build ran, not that it produced anything. (#43)
+
+  Shown in both directions on the same run, from a clean `dist` each time. With the glob pointed
+  at `nodes/**/*.svg.notreal`, `npm run build` exits **1** and names the icon that was not copied,
+  where before this change the identical tree exited **0** with zero svg under `dist/nodes`. With
+  the glob untouched it exits **0** and copies 1 of 1. Restoring the glob returns it to 0, which
+  is the control that separates a working gate from one that refuses everything.
+
+  The assertion is on the output, not on gulp's exit code, because the exit code is the thing that
+  was wrong. `scripts/check-icons.sh` compares the set of `*.svg` relative paths under `dist/nodes`
+  against the set under `nodes`, so it also catches a stale output tree holding the same number of
+  differently named files, which a bare count would pass. It refuses to answer, exit 2, rather than
+  passing when there are no source icons, because zero output files equal zero source files and an
+  unguarded comparison would report OK forever. Exit codes match the sibling gates: 0 agree,
+  1 disagree, 2 could not answer.
+
+  It runs in three places: `package.json`'s `build`, so every build including `prepublishOnly` and
+  any build run by hand is covered; `.github/workflows/ci.yml`, which now calls the script instead
+  of the inline block it carried, so the two cannot drift; and `.github/workflows/release.yml`
+  immediately after its `Build` step, as the backstop on the one path that is irreversible, since a
+  tag can be cut from a commit that never ran CI. Its behaviour is proven offline by
+  `test/scripts/check-icons.test.ts` (14 tests), because a step in `release.yml` can only be
+  exercised by pushing a tag and that publishes.
+
+  Two other places in the build have the same shape, both measured on 2026-08-29 rather than
+  assumed, and neither is fixed here:
+
+  - **`tsconfig.json`'s `include` list.** `tsc` raises TS18003 only when **every** include matches
+    nothing (measured: rc 2). One include matching nothing among several is silent (measured:
+    rc 0). `nodes/**/*.json` matches zero files today, so that is a live instance with no
+    consequence, and a rename of `nodes/` would silently compile `credentials/` alone.
+  - **`npm pack` with `files: ["dist"]`.** With no `dist` directory at all, `npm pack --dry-run`
+    exits **0** and builds a four file tarball carrying no code, against fourteen files when `dist`
+    is present. On the release path this is now closed as a side effect, since `check-icons.sh`
+    exits 2 when the output directory is absent, but `npm pack` run by hand is still not guarded.
+
+  Two that are **not** the same shape, checked on the same sweep so the list is not one sided:
+  `jest` exits 1 with "No tests found" when its pattern matches nothing (`passWithNoTests` is not
+  set), and `eslint` exits 2 with "No files matching the pattern" on a directory holding nothing
+  lintable. Both fail closed.
 
 ## [1.1.3] - 2026-08-10
 

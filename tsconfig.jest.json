@@ -11,6 +11,9 @@
 	// exactly 3 files (the two nodes and the credential) and reported success while never looking
 	// at a single test file. Measured 2026-08-29 with `--listFilesOnly`; the same command now
 	// lists 11, and .github/workflows/ci.yml asserts that count so this cannot silently regress.
+	// (12 later the same day, once test/scripts/check-icons.test.ts was added by #43. The 11 is
+	// left as written: ci.yml compares the covered count against the count on disk rather than
+	// against a literal, so it does not need editing when a test file is added.)
 	//
 	// This does not change what `npm test` compiles. ts-jest picks its file set from jest.config.js
 	// roots and testMatch, never from include/exclude here, and only reads the compilerOptions.

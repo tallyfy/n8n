@@ -124,6 +124,31 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Stops a release whose node ships with no icon. `npm run build` is
+      # `tsc && gulp build:icons && scripts/check-icons.sh`, and until 2026-08-29 it was the first
+      # two of those only. `gulp build:icons` is `src('nodes/**/*.svg').pipe(dest('dist/nodes'))`,
+      # and a glob with magic characters does NOT error when it matches nothing: it copies zero
+      # files and exits 0, so the build exited 0 too (tallyfy/n8n#43). Measured before the fix,
+      # with the glob pointed at `nodes/**/*.svg.notreal` and dist removed first: build exit 0,
+      # zero svg under dist/nodes. So the Build step above reported success on a package that
+      # would have been published without its icon.
+      #
+      # .github/workflows/ci.yml runs the same script on every pull request and every push to
+      # main, and a release tag is normally cut from main, which is where this should normally be
+      # caught. This copy is the backstop on the one path that is irreversible: a v* tag push
+      # publishes to npm, and a tag can be cut from a commit that never ran CI. Same argument the
+      # CHANGELOG and lock-file checks above already make for themselves.
+      #
+      # It is deliberately redundant with the build script that now also runs it. The redundancy
+      # is the point: this step still fires if package.json's "build" is ever edited to drop the
+      # check, which is the single edit that would silently reopen the hole.
+      #
+      # The logic lives in a script for the same reason the other two do: a step here can only be
+      # exercised by pushing a tag, and that publishes. It is exercised offline by
+      # test/scripts/check-icons.test.ts.
+      - name: Verify the icon copy reproduced the source set
+        run: scripts/check-icons.sh
+
       # Runs the mocked unit suite only: the live integration suite is gated behind
       # TALLYFY_LIVE=1 (unset here), so no staging credentials or network are needed.
       - name: Test
