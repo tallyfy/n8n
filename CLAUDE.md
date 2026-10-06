@@ -241,6 +241,10 @@ one-off.
   Everything up to and including 1.1.1 was published by hand.
 - **macOS install gotcha**: n8n-workflow 2.x pulls `isolated-vm` (native C++ addon, needs Node >=22 headers to compile; fine on Linux CI). **Check `xcode-select -p` BEFORE exporting anything.** On a Mac whose CommandLineTools lack `usr/include/c++/v1` (broken CLT), `npm install` fails with `'memory' file not found`, and the fix is `export CPLUS_INCLUDE_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1`, plus making sure Apple's `/usr/bin/libtool` (not Homebrew GNU libtool) wins in PATH or the `-static` archive step fails. ⚠️ **Where `xcode-select -p` points at Xcode rather than CommandLineTools, that export MIXES TWO SDKs and `npm ci` fails with `unknown type name 'uint64_t'` — a different error that reads like a worse version of the one you were fixing.** Measured on ak-imac 2026-08-21: clean environment, no workaround, `npm ci` exits 0. So the workaround is conditional, not a default.
 
+## CI runners and pull requests (dated 2026-10-06)
+
+This repo is public. All its CI runs on GitHub-hosted runners and it sets no `CI_*` variable.
+
 ## Production Deployment
 
 - **Droplet**: answers-n8n (64.227.104.197), ID 405593214
