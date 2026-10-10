@@ -59,7 +59,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Stops a release with no CHANGELOG entry, which is what happened to 1.1.0, 1.1.1 and
       # 1.1.2 (tallyfy/n8n#18). Since 2026-08-22 it also stops a release whose heading exists
@@ -80,7 +80,7 @@ jobs:
       - name: Verify CHANGELOG has an entry for this tag
         run: scripts/check-changelog.sh "${GITHUB_REF_NAME#v}"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
