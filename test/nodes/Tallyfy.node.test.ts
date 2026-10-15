@@ -1042,19 +1042,55 @@ describe('Tallyfy node - request building', () => {
 			});
 		});
 
-		it('POSTs to the guest endpoint when As Guest is set', async () => {
+		it('POSTs to the guest endpoint with the guest code in the {guest} slot (#47)', async () => {
+			// api-v2 binds {guest} by the guest's code, never by email.
 			const { httpMock } = await run({
 				...base,
 				asGuest: true,
-				guestEmail: 'guest@example.com',
+				guestCode: 'gc7Hq2Lm9Xa4',
 				fieldType: 'dropdown',
 				dropdownOptionId: '1',
 				dropdownOptionText: 'Option A',
 			});
 			const opts = requestAt(httpMock, 0);
 			expect(opts.method).toBe('POST');
-			expect(opts.url).toBe(`${BASE}/organizations/${ORG}/guests/guest@example.com/form-field/value`);
+			expect(opts.url).toBe(`${BASE}/organizations/${ORG}/guests/gc7Hq2Lm9Xa4/form-field/value`);
 			expect(opts.body).toEqual({ id: 'CV1', form_value: { id: 1, text: 'Option A' } });
+		});
+
+		it('trims the guest code and encodes it as one path segment (#47)', async () => {
+			const { httpMock } = await run({ ...base, asGuest: true, guestCode: '  a/b c  ', fieldValue: 'x' });
+			expect(requestAt(httpMock, 0).url).toBe(`${BASE}/organizations/${ORG}/guests/a%2Fb%20c/form-field/value`);
+		});
+
+		it('refuses an email in Guest Code before calling the API (#47)', async () => {
+			const { ctx, httpMock } = createContextMock({
+				params: { ...base, asGuest: true, guestCode: 'guest@example.com', fieldValue: 'x' },
+			});
+			await expect(new Tallyfy().execute.call(ctx)).rejects.toThrow(NodeOperationError);
+			await expect(new Tallyfy().execute.call(ctx)).rejects.toThrow(/looks like an email/);
+			expect(httpMock).not.toHaveBeenCalled();
+		});
+
+		it('refuses a workflow that still carries only the old Guest Email parameter (#47)', async () => {
+			const { ctx, httpMock } = createContextMock({
+				params: { ...base, asGuest: true, guestEmail: 'guest@example.com', fieldValue: 'x' },
+			});
+			await expect(new Tallyfy().execute.call(ctx)).rejects.toThrow(/Guest Code is required/);
+			expect(httpMock).not.toHaveBeenCalled();
+		});
+
+		it('returns the data object of the response, the value without its envelope (#47)', async () => {
+			const value = { id: 'CV1', capture_id: 'F1', value: 'Hello' };
+			const { result } = await run({ ...base, fieldValue: 'Hello' }, [{ data: value }]);
+			expect(result[0]).toHaveLength(1);
+			expect(result[0][0].json).toEqual(value);
+		});
+
+		it('keeps a response that has no data envelope as it is (an API without api-v2#8955) (#47)', async () => {
+			const row = { id: 'CV1', value: '"Hello"', created_at: '2026-10-01 10:00:00' };
+			const { result } = await run({ ...base, fieldValue: 'Hello' }, [row]);
+			expect(result[0][0].json).toEqual(row);
 		});
 	});
 
