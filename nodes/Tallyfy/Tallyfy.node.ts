@@ -456,7 +456,7 @@ export class Tallyfy implements INodeType {
 					{
 						name: 'Update Value',
 						value: 'updateValue',
-						description: 'Update a form field value in a task',
+						description: 'Update a form field value in a task. An administrator may always write it. For a kick-off field, so may the process owner or anyone assigned to one of its live tasks; for a task field, so may that task\'s assignee, directly or through a group. Anyone else gets 403. A value on an archived process or task cannot be written (422). Returns the updated value: the data object of the response.',
 						action: 'Update form field value',
 					},
 					{
@@ -1495,13 +1495,19 @@ export class Tallyfy implements INodeType {
 						operation: ['updateValue'],
 					},
 				},
-				description: 'Whether to update as a guest (requires guest email)',
+				description: 'Whether to update as a guest (requires the guest code). The guest must be assigned to the task, or for a kick-off field to one of the process\'s live tasks, or the API answers 403.',
 			},
 			{
-				displayName: 'Guest Email',
-				name: 'guestEmail',
+				// Was 'guestEmail' until tallyfy/n8n#47. api-v2 resolves the {guest} slot of
+				// POST guests/{guest}/form-field/value by the guest's code, never by email, so an
+				// email never matched. A workflow saved with the old parameter now stops with a
+				// clear error instead of a 404.
+				displayName: 'Guest Code',
+				name: 'guestCode',
 				type: 'string',
+				typeOptions: { password: true },
 				default: '',
+				required: true,
 				displayOptions: {
 					show: {
 						resource: ['formField'],
@@ -1509,7 +1515,7 @@ export class Tallyfy implements INodeType {
 						asGuest: [true],
 					},
 				},
-				description: 'Guest email for updating the field',
+				description: 'The guest\'s access code, not their email. It is the part after /guest/ in the guest\'s link, which the Tallyfy API returns as "link" when you get the guest (GET guests/{email}).',
 			},
 
 			// ===== COMMENT FIELDS =====
@@ -3356,8 +3362,24 @@ export class Tallyfy implements INodeType {
 						const fieldType = this.getNodeParameter('fieldType', i, 'text') as string;
 						
 						if (asGuest) {
-							const guestEmail = this.getNodeParameter('guestEmail', i) as string;
-							endpoint = `/organizations/${organizationId}/guests/${guestEmail}/form-field/value`;
+							// api-v2 binds {guest} by the guest's code (Guest::getRouteKeyName() is
+							// 'code'), so an email never matches and comes back as a 404 (#47).
+							const guestCode = String(this.getNodeParameter('guestCode', i, '') ?? '').trim();
+							if (!guestCode) {
+								throw new NodeOperationError(
+									this.getNode(),
+									'Guest Code is required when As Guest is on. Use the code from the guest\'s link, not their email.',
+									{ itemIndex: i },
+								);
+							}
+							if (guestCode.includes('@')) {
+								throw new NodeOperationError(
+									this.getNode(),
+									'Guest Code looks like an email. The guest route needs the guest\'s access code, the part after /guest/ in their link.',
+									{ itemIndex: i },
+								);
+							}
+							endpoint = `/organizations/${organizationId}/guests/${encodeURIComponent(guestCode)}/form-field/value`;
 							method = 'POST';
 						} else {
 							endpoint = `/organizations/${organizationId}/form-field/value`;
@@ -4041,6 +4063,17 @@ export class Tallyfy implements INodeType {
 						options,
 					);
 				}
+				}
+
+				// Form field Update Value: since tallyfy/api-v2#8955 both routes answer through the
+				// standard transformer, so the value comes back inside `data` and without the row
+				// timestamps. Return that data object, so the output is the value whether or not the
+				// API serving this credential has #8955 yet (#47).
+				if (resource === 'formField' && operation === 'updateValue') {
+					const wrapped = (responseData as IDataObject)?.data;
+					if (wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)) {
+						responseData = wrapped as IDataObject;
+					}
 				}
 
 				// Comment list returns the task object with threads embedded; surface the threads
