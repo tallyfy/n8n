@@ -456,7 +456,7 @@ export class Tallyfy implements INodeType {
 					{
 						name: 'Update Value',
 						value: 'updateValue',
-						description: 'Update a form field value in a task. An administrator may always write it. For a kick-off field, so may the process owner or anyone assigned to one of its live tasks; for a task field, so may that task\'s assignee, directly or through a group. Anyone else gets 403. A value on an archived process or task cannot be written (422). Returns the updated value: the data object of the response.',
+						description: 'Update a form field value in a task. An administrator may write a kick-off field at any time, and a task field while the task is not completed or auto-skipped. While the process is not complete, the process owner or anyone assigned to one of its live tasks may write a kick-off field. While the task is active, its assignee, directly or through a group, may write a task field. Anyone else gets 403. A value on an archived process or task cannot be written (422). Returns the updated value: the data object of the response.',
 						action: 'Update form field value',
 					},
 					{
@@ -1495,7 +1495,7 @@ export class Tallyfy implements INodeType {
 						operation: ['updateValue'],
 					},
 				},
-				description: 'Whether to update as a guest (requires the guest code). The guest must be assigned to the task, or for a kick-off field to one of the process\'s live tasks, or the API answers 403.',
+				description: 'Whether to update as a guest (requires the guest code). For a task field the task must be active and the guest assigned to it, unless the process is public. For a kick-off field the process must not be complete and the guest must be assigned to one of its live tasks. Otherwise the API answers 403.',
 			},
 			{
 				// Was 'guestEmail' until tallyfy/n8n#47. api-v2 resolves the {guest} slot of
@@ -1515,7 +1515,7 @@ export class Tallyfy implements INodeType {
 						asGuest: [true],
 					},
 				},
-				description: 'The guest\'s access code, not their email. It is the part after /guest/ in the guest\'s link, which the Tallyfy API returns as "link" when you get the guest (GET guests/{email}).',
+				description: 'The guest\'s access code, not their email. It is the segment between /guest/ and /tasks in the guest\'s link, which the Tallyfy API returns as "link" when you get the guest (GET guests/{email}).',
 			},
 
 			// ===== COMMENT FIELDS =====
@@ -3375,7 +3375,7 @@ export class Tallyfy implements INodeType {
 							if (guestCode.includes('@')) {
 								throw new NodeOperationError(
 									this.getNode(),
-									'Guest Code looks like an email. The guest route needs the guest\'s access code, the part after /guest/ in their link.',
+									'Guest Code looks like an email. The guest route needs the guest\'s access code, the segment between /guest/ and /tasks in their link.',
 									{ itemIndex: i },
 								);
 							}
