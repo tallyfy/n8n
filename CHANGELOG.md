@@ -65,9 +65,11 @@ exists) and its own tag. Nobody has decided to cut it yet.
   an email or an empty code stops the node with a message before any request, so a workflow
   saved with the old field says what to change. The operation's description names who may write
   a value and when (an administrator on a task field only while the task is active, the owner and
-  assignees only while the process or task is active, any guest on a public process; 403 for
-  anyone else) and that a value on an archived process or task is read only (422). Its output is the response's `data` object, unwrapped when api-v2 sends one, so the
-  output is the value whether or not the API has #8955. (#47)
+  assignees only while the process or task is active, any guest on a task field of a public
+  process, while a kick-off field still needs an assigned guest; 403 for anyone else) and that
+  a value on an archived process or task is read only (422). Its output is the response's
+  `data` object, unwrapped when api-v2 sends one, so the output is the value whether or not the
+  API has #8955. (#47)
 - A kick-off choice **option ID** carrying surrounding whitespace now resolves the same way on
   all three field types, matching how the text passes already behaved. `" 2 "` against an option
   `{id: 2, ...}` used to throw on `dropdown` (`no dropdown option matches " 2 "`), resolve on
