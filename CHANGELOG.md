@@ -61,8 +61,9 @@ exists) and its own tag. Nobody has decided to cut it yet.
 - **The Tallyfy node can now be used as a tool by an n8n AI Agent.** It declares
   `usableAsTool: true`. n8n no longer has the `N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE`
   environment switch, so without this flag the agent could not offer the node at all. (#4)
-- The **Tallyfy API** credential shows the Tallyfy icon, and both nodes ship a codex file that
-  files them under the **Productivity** category and links the Tallyfy n8n documentation. (#4)
+- Both nodes ship a codex file that files them under the **Productivity** category and links the
+  Tallyfy n8n documentation. The **Tallyfy API** credential declares its own icon, as n8n's rules
+  require; n8n already showed the node's icon for it, so it looks the same. (#4)
 
 ### Fixed
 - Form field **Update Value** with **As Guest** now sends the guest's access code, which is
@@ -167,9 +168,9 @@ exists) and its own tag. Nobody has decided to cut it yet.
   every pattern with empty compiler options, so with `resolveJsonModule` off it counted any
   `.json` pattern as matching 0 files even while tsc compiled them, and the node-cli tsconfig's
   `nodes/**/*.json` and `package.json` turned a correct tree red. It now uses each config's
-  effective options, `extends` included. Two new tests run it against tsc's own file list with the
-  option on and off, and reverting the fix fails both of them plus the three real-repository
-  checks. (#4)
+  effective options, `extends` included. One new test runs it against tsc's own file list with the
+  option on and off, another covers the option arriving through `extends`, and reverting the fix
+  fails both of them plus the three real-repository checks. (#4)
 
 - Dev dependencies refreshed for the Dependabot alerts in #32: `n8n-workflow` 2.43.5 (the n8n
   stable line, measured with `npm view n8n@stable`), ESLint 9 in place of 8, the newest
