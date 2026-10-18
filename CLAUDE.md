@@ -99,9 +99,24 @@ one-off.
 ## Development (modernized 2026-07 — tallyfy/n8n#4)
 
 - **Toolchain**: `n8n-workflow` ^2.16.0 (dev + peer), `engines.node` >=20.15, ESLint 8 + `@typescript-eslint` 8 + `eslint-plugin-n8n-nodes-base` 1.16.7 (+ `jsonc-eslint-parser` for linting package.json). `npm run build` and `npm run lint` are both green. ⚠️ **This said `npm run build` is "(tsc + gulp icons)" until 2026-08-30 and it has not been those two alone since #43.** It is now four steps in this order: `scripts/check-tsconfig-includes.sh && tsc && gulp build:icons && scripts/check-icons.sh`. The include check runs **first** on purpose, so a config that has stopped naming the sources fails in a second rather than after a full compile that would have exited 0 anyway (#45). Derive it rather than trusting this line: `jq -r .scripts.build package.json`.
-- **n8n-workflow 2.x API note**: `NodeConnectionType` is type-only in 2.x; `inputs`/`outputs` use the literal `['main']` form (same runtime value as the old enum).
+  **Reading of 2026-10-18 (#4, the `@n8n/node-cli` re-scaffold):** the package is built with `@n8n/node-cli` 0.52.5, pinned exactly because a new release can add lint rules. `npm run build` is `scripts/check-tsconfig-includes.sh && n8n-node build && scripts/check-icons.sh`; `n8n-node build` clears `dist`, runs `tsc`, then copies every `*.png` and `*.svg` outside `dist` and `node_modules` to the same relative path under `dist`. `npm run lint` is `n8n-node lint`: ESLint 9 over the whole repository with `@n8n/eslint-plugin-community-nodes` plus `eslint-plugin-n8n-nodes-base`. `package.json` sets `n8n.strict: true`, so `eslint.config.mjs` must stay byte-for-byte n8n's default (whitespace aside): measured, a config adding one rule override made `npm run lint` exit 1 with "Strict mode violation". Do not add rules or ignores there; that one edit would make the package ineligible for verification. ESLint 8, `@typescript-eslint/*` as direct dependencies, `jsonc-eslint-parser`, gulp, `gulpfile.js`, `build.sh` and `.eslintrc.json` are gone. `n8n-workflow` is `~2.43.5` as a dev dependency (the n8n stable line on that date) and `*` as the peer dependency, which n8n's `valid-peer-dependencies` rule requires. Layout follows the node-cli templates: `nodes/Tallyfy/`, `nodes/TallyfyTrigger/` (moved out of `nodes/Tallyfy/`), a codex `*.node.json` beside each node, and the shared icon in `icons/tallyfy.svg`. The template's `release` script and `prepublishOnly: n8n-node prerelease` were NOT adopted: `n8n-node prerelease` exits 1 unless `RELEASE_MODE` is set, which would break the `npm publish` in `release.yml`, and `n8n-node release` is a second release path that bypasses the CHANGELOG gate.
+- **n8n-workflow 2.x API note**: `NodeConnectionType` is type-only in 2.x; `inputs`/`outputs` use the literal `['main']` form (same runtime value as the old enum). Since 2026-10-18 they use `NodeConnectionTypes.Main` from `n8n-workflow` instead, because `@n8n/community-nodes/node-connection-type-literal` rejects the literal; the runtime value is still `'main'`.
 - **Deferred lint rules**: `.eslintrc.json` disables six `n8n-nodes-base` rules that would force user-visible UI/behavior changes (option-sorting, maxValue removal, color widget, error classes) plus the URL-mangling `cred-class-field-documentation-url-miscased`. Re-enable during the `@n8n/node-cli` verified-node re-scaffold (issue #4 phase 2).
+  **Done 2026-10-18 (#4), and `.eslintrc.json` is gone.** Five of the seven are on and satisfied: the three sorting rules, `node-param-color-type-unused` and `node-execute-block-wrong-error-thrown`. The other two stay off because n8n's own default config switches them off and strict mode forbids changing it: `node-param-type-options-max-value-present` and `cred-class-field-documentation-url-miscased`. The sorting rules print "[autofixable]" but applied no fix when run with `--fix` (measured); the 20 lists were reordered by script into the exact order each report named, and a line-multiset comparison showed nothing but order changed. The "Create one off task" action could not get its hyphen back: `node-param-operation-option-action-miscased` rejects any hyphen, so it now reads "Create a standalone task". Test files carry a file-level ESLint directive for the runtime-sandbox rules (restricted imports and globals, `child_process`, raw rethrows), because `n8n-node lint` lints `test/` too; n8n's scan does not lint `test/` and ignores inline directives, so nothing under `nodes/` or `credentials/` may carry one.
 - **Tests**: `npm test` runs Jest. 113 tests declared across 5 files, re-derived 2026-08-22: `test/credentials/TallyfyApi.credentials.test.ts` (5), `test/live/Tallyfy.live.test.ts` (20), `test/nodes/Tallyfy.node.test.ts` (61), `test/nodes/TallyfyTrigger.node.test.ts` (11), `test/scripts/check-changelog.test.ts` (16). The live file is gated behind `TALLYFY_LIVE=1` (`const d = LIVE ? describe : describe.skip`), so a plain `npm test` skips its 20 and reports **93 passed, 20 skipped** (observed, not inferred). Re-derive rather than trusting this count, since it decays the moment a test is added or removed: `grep -rcE '^[[:space:]]*it\(' test/**/*.test.ts`. ⚠️ **127 declared across 6 files as of 2026-08-28**, after `test/scripts/check-version-sync.test.ts` (14) was added by #39; a plain `npm test` now reports **107 passed, 20 skipped** (observed, not inferred). ⚠️ **141 declared across 7 files as of 2026-08-29**, after `test/scripts/check-icons.test.ts` (14) was added by #43; a plain `npm test` now reports **121 passed, 20 skipped** (observed, not inferred). ⚠️ **173 declared across 9 files as of 2026-08-30**, after `test/scripts/check-tsconfig-includes.test.ts` (18) and `test/scripts/check-pack-contents.test.ts` (14) were added by #45; a plain `npm test` now reports **153 passed, 20 skipped** (observed, not inferred). The 2026-08-22 figures above are correct for their date and are deliberately left as written rather than overwritten, which is the same reason the note below exists. ⚠️ **This bullet read 103 / 57 / 10 until 2026-08-22 and had already decayed on its own**: `Tallyfy.node.test.ts` had gained four tests that were never folded back in, so only 6 of the 10-test delta is the check-changelog work of #35. Exactly the decay the sentence above warns about, in the sentence that warns about it.
+- **n8n's verification scan** (dated 2026-10-18, #4). `npx @n8n/scan-community-package
+  n8n-nodes-tallyfy` takes a PUBLISHED name only: it checks npm provenance, downloads the source
+  at the commit the provenance names from GitHub, and lints `package.json` plus
+  `{nodes,credentials}/**` from that source and `**/*.js` plus `package.json` from the tarball,
+  with inline ESLint directives ignored. It prints a failure but exits 0, so read its text, never
+  its exit code. Run against the published 1.1.3 on 2026-10-18 it failed with 41 errors in the
+  source and 1 in the tarball, all fixed by the re-scaffold. To check an unpublished tree, import
+  the scanner's own `analyzePackage(dir, patterns)` and `SOURCE_FILE_PATTERNS` from
+  `@n8n/scan-community-package/scanner/scanner.mjs` (installed in a scratch directory, not here)
+  and run it on the repository and on an extracted `npm pack` tarball with
+  `['**/*.js', 'package.json']`. Control it by running the same harness on `git archive v1.1.3`,
+  which must reproduce the 41 errors, and by planting `require("fs")` in a copy of the tarball's
+  `dist`, which must fail the tarball leg.
 - **Pull request and push gates** (`.github/workflows/ci.yml`, added 2026-08-29,
   `tallyfy/work-queue#1174`): four jobs on every `pull_request` and every push to `main`, named
   `lint`, `typecheck`, `test` and `build`. They run the same commands `release.yml` runs, on the
@@ -131,6 +146,11 @@ one-off.
   step, so the publish path no longer lacks it. It compares relative path SETS, not only counts,
   so a stale `dist` holding the same number of differently named files fails too, and it exits 2
   rather than 0 when there are no source icons, since zero would otherwise equal zero forever.
+  Since 2026-10-18 its defaults are `icons/` and `dist/icons/`, because the icon moved there with
+  the node-cli re-scaffold (#4). `n8n-node build`'s copy has the same blind spot as gulp's,
+  measured the same day: with the icon moved out of the repository it exited 0 with no svg under
+  `dist`, and with `icons/` renamed inside the repository it followed the file to
+  `dist/<new name>/` and still exited 0.
   ⚠️ Two siblings measured the same day and **not** fixed then: one `include` in `tsconfig.json`
   matching nothing is silent (`tsc` raises TS18003 only when **every** include is empty, measured
   rc 0 against rc 2, and `nodes/**/*.json` matches zero files today), and `npm pack --dry-run`
@@ -145,7 +165,12 @@ one-off.
     reimplementing its glob rules, so it agrees with the compiler by construction, and it
     **discovers** the configs instead of holding a list. `nodes/**/*.json` was removed in the same
     change, so the gate is green on a correct tree rather than red from the day it landed;
-    `tsc --listFilesOnly` reports the same 3 files before and after. Runs first in
+    `tsc --listFilesOnly` reports the same 3 files before and after. **Fixed 2026-10-18 (#4):** it
+    resolved every pattern with empty compiler options, so with `resolveJsonModule` off it counted
+    any `.json` pattern as 0 files even while tsc compiled them, and the node-cli tsconfig's
+    `nodes/**/*.json` (the codex files) and `package.json` read as dead. It now passes each
+    config's effective options, `extends` included, and is tested against tsc's own file list with
+    the option on and off. Runs first in
     `package.json`'s `build`, in `ci.yml`'s `typecheck` job, and in `release.yml` after `npm ci`.
   - `scripts/check-pack-contents.sh` requires every path under `package.json`'s `n8n.nodes` and
     `n8n.credentials` to be in the manifest `npm pack --dry-run --json` produces. It asserts the

@@ -57,6 +57,13 @@ to publish" and is wrong for exactly this state.
 The next release needs its own new heading (**1.1.4** - `1.1.3` cannot be reused, the tag
 exists) and its own tag. Nobody has decided to cut it yet.
 
+### Added
+- **The Tallyfy node can now be used as a tool by an n8n AI Agent.** It declares
+  `usableAsTool: true`. n8n no longer has the `N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE`
+  environment switch, so without this flag the agent could not offer the node at all. (#4)
+- The **Tallyfy API** credential shows the Tallyfy icon, and both nodes ship a codex file that
+  files them under the **Productivity** category and links the Tallyfy n8n documentation. (#4)
+
 ### Fixed
 - Form field **Update Value** with **As Guest** now sends the guest's access code, which is
   what api-v2 finds the guest by on `POST guests/{guest}/form-field/value`. It used to send the
@@ -85,6 +92,94 @@ exists) and its own tag. Nobody has decided to cut it yet.
   `v1.1.3` tag (control on the same invocation: `8169358`, PR #29, is). Moved here 2026-08-22.
 
 ### Changed
+- **Rebuilt on `@n8n/node-cli` 0.52.5, the toolchain n8n requires for a verified community
+  node, and the rules it enforces changed what people see in the editor.** (#4) No saved workflow
+  breaks: no parameter was renamed or removed, no stored option value changed, and no default
+  changed. That was measured, not assumed: the node descriptions from `main` and from this change
+  were loaded side by side and all 139 Tallyfy, 8 Tallyfy Trigger and 3 credential parameters
+  compared by name, type, default, label, option value, option label and action text. The only
+  differences are the ones listed here.
+
+  - **Dropdowns are in alphabetical order.** The Resource list, the Operation list of all 12
+    resources, Field Type on Form Field > Update Value, Search In on Search > Global Search, and
+    Status and Sort under Filters. So are three Add Field menus: Task > Update Properties, the
+    Additional Fields of Task > Create One-Off and Complete, and Task > Update Process Task. Only
+    the order on screen moved; workflows store the option value, which did not change, so a saved
+    workflow opens with the same selections.
+  - **Tag > Create and Update: Color is a colour picker** instead of a text box. Same parameter
+    name, and it still stores a hex string, so a saved value is kept and sent as before.
+  - **Six validation failures now throw `NodeOperationError` instead of a plain `Error`**: a
+    kick-off entry naming no field on Process > Launch, a dropdown or multi-select kick-off value
+    matching no option, Form Field > Update Dropdown Options on a field the step does not have,
+    and Form Field > Update Kickoff Field or Reorder Kickoff Fields naming a field the template
+    does not have. The message text is exactly the same, so Continue On Fail output (the `error`
+    field) and anything that matches on the message are unaffected. What differs: the error names
+    the item that failed, it is warning level, and anything that tests the error's class or name
+    sees `NodeOperationError` where it saw `Error`. Any other unexpected failure inside an item,
+    such as invalid JSON typed into a JSON field, is now a `NodeOperationError` for that item with
+    the same message. API failures were already `NodeApiError` and are rethrown as the very same
+    object, so their status code and response are untouched.
+  - **Every output item is linked to the input item that produced it** (`pairedItem`), including
+    the error item under Continue On Fail, so expressions such as `$('Tallyfy').item` resolve in
+    later nodes. This only adds information.
+  - **Task > Create One-Off reads "Create a standalone task" in the actions panel.** It read
+    "Create one off task", the result of an earlier lint autofix stripping the hyphen. n8n's
+    action casing rule rejects any hyphen, so "Create one-off task" cannot come back; the new text
+    is the operation's own description. Display only.
+  - **Tallyfy Trigger logs what it used to swallow.** If listing existing webhook watchers fails,
+    that is logged at debug level and the trigger still creates a new watcher as before. If
+    removing a watcher fails on deactivation, n8n now logs a warning naming the watcher, because
+    Tallyfy would otherwise keep posting to a URL nobody listens on; deactivation still never
+    blocks. A failure creating the watcher, other than the existing 403 message, is rethrown as
+    the same `NodeApiError` or wrapped in a `NodeOperationError` with the same message.
+  - **The `n8n-workflow` peer dependency is `*`**, as n8n's verification rules require, where it
+    was `^2.16.0`. n8n removes peer dependencies before it installs a community package, so this
+    changes nothing inside n8n; it only stops npm warning about the range elsewhere.
+  - **Files moved inside the package.** The trigger is at `dist/nodes/TallyfyTrigger/` and the icon
+    at `dist/icons/`, and the tarball gains the two codex files and the `dist/package.json` that
+    `n8n-node build` emits. Workflows refer to nodes as `n8n-nodes-tallyfy.tallyfy` and
+    `n8n-nodes-tallyfy.tallyfyTrigger`, never by file path, so the move does not affect them.
+
+- The seven lint rules `.eslintrc.json` switched off are dealt with, and the file is gone. (#4)
+  Five are on and satisfied: the three option sorting rules, the colour widget rule and the error
+  class rule, which produced the changes above. Two stay off because n8n's own default config
+  switches them off, and strict mode requires that config unmodified:
+  `node-param-type-options-max-value-present` (n8n's reason: "Sometimes the 3rd party API does
+  have a maximum limit, so maxValue is valid") and `cred-class-field-documentation-url-miscased`
+  ("Not valid for community nodes"). So the two Limit caps of 100, on Get Many and on the trigger,
+  stay, and the credential's documentation URL is unchanged. n8n's newer community node rules
+  also required `NodeConnectionTypes.Main` for inputs and outputs (the same value, `main`), the
+  `{ light, dark }` icon form (the solid Tallyfy tile fills both slots), and no `any` types.
+
+- **Build and lint run through `@n8n/node-cli`.** `npm run build` is
+  `scripts/check-tsconfig-includes.sh && n8n-node build && scripts/check-icons.sh`, and
+  `npm run lint` is `n8n-node lint`: ESLint 9 over the whole repository with n8n's community node
+  rules, in strict mode, so it fails if `eslint.config.mjs` differs from n8n's default at all.
+  gulp, `build.sh`, ESLint 8 and `.eslintrc.json` are gone. Every existing gate still runs:
+  the CHANGELOG, version sync and pack contents checks are unchanged, `check-icons.sh` now
+  compares `icons/` with `dist/icons/` because that is where the icon lives and where
+  `n8n-node build` copies it, and `check-tsconfig-includes.sh` was fixed (next entry). Test files
+  carry a file-level ESLint directive for the four rules that guard code running inside n8n
+  (restricted imports, restricted globals, `child_process`, raw rethrows): they are Jest tests that
+  never ship, and n8n's verification scan does not lint them. (#4)
+
+- `scripts/check-tsconfig-includes.sh` now counts a `.json` include the way tsc does. It resolved
+  every pattern with empty compiler options, so with `resolveJsonModule` off it counted any
+  `.json` pattern as matching 0 files even while tsc compiled them, and the node-cli tsconfig's
+  `nodes/**/*.json` and `package.json` turned a correct tree red. It now uses each config's
+  effective options, `extends` included. Two new tests run it against tsc's own file list with the
+  option on and off, and reverting the fix fails both of them plus the three real-repository
+  checks. (#4)
+
+- Dev dependencies refreshed for the Dependabot alerts in #32: `n8n-workflow` 2.43.5 (the n8n
+  stable line, measured with `npm view n8n@stable`), ESLint 9 in place of 8, the newest
+  TypeScript 5.9, Prettier 3 and ts-jest 29 releases, and a fresh lock file, with gulp removed.
+  Jest stays on 29: no alert needed 30. Of the 23 alerts open on 2026-10-18, 19 have no vulnerable copy left in the
+  new lock file. Four remain: handlebars 4.7.9 (two alerts) and uuid 10.0.0 are pinned inside
+  `@n8n/node-cli`'s own dependencies, and npm `overrides` cannot lift them because n8n's
+  verification rules forbid that field; sprintf-js has no patched release. All are development
+  only and none ships in the package, which still has no runtime dependencies. (Part of #32)
+
 - The release gate now checks that a version's CHANGELOG section has entries under it, not only
   that its heading exists. `scripts/check-changelog.sh` stopped at the heading, so a bare
   `## [1.1.4]` with nothing beneath it passed, and the release would have shipped with its notes
