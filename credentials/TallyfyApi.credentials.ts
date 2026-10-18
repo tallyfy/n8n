@@ -1,5 +1,6 @@
 import type {
 	IAuthenticateGeneric,
+	Icon,
 	ICredentialTestRequest,
 	ICredentialType,
 	INodeProperties,
@@ -8,6 +9,9 @@ import type {
 export class TallyfyApi implements ICredentialType {
 	name = 'tallyfyApi';
 	displayName = 'Tallyfy API';
+	// The same file fills both theme slots on purpose: the icon is a solid tile that reads on
+	// light and dark backgrounds alike.
+	icon: Icon = { light: 'file:../icons/tallyfy.svg', dark: 'file:../icons/tallyfy.svg' };
 	documentationUrl = 'https://go.tallyfy.com/api/';
 	properties: INodeProperties[] = [
 		{

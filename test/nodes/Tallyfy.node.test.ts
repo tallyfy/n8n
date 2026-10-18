@@ -1334,3 +1334,204 @@ describe('Tallyfy node - property definitions', () => {
 		);
 	});
 });
+
+// tallyfy/n8n#4: the @n8n/node-cli re-scaffold turned on the rules that require n8n's own error
+// classes and item linking. These lock what that changed. Messages are asserted EXACTLY, because
+// the class changed and the text must not have: continueOnFail output and anything matching on
+// the message would otherwise move with it.
+describe('Tallyfy node - n8n error classes and item linking (#4)', () => {
+	const TEMPLATE = {
+		data: {
+			title: 'T',
+			prerun: [
+				{
+					id: 'F_DD',
+					label: 'Plan',
+					field_type: 'dropdown',
+					options: [{ id: 1, text: 'Silver' }],
+				},
+				{
+					id: 'F_MS',
+					label: 'Addons',
+					field_type: 'multiselect',
+					options: [{ id: 1, text: 'SSO' }],
+				},
+				{ id: 'KF1', label: 'Kick', field_type: 'text' },
+			],
+		},
+	};
+	const LAUNCH = {
+		resource: 'process',
+		operation: 'launch',
+		blueprintId: 'BP1',
+		processName: 'Run',
+		additionalFields: {},
+	};
+
+	async function failure(
+		params: Record<string, unknown>,
+		httpResponses: unknown[],
+		inputItems?: INodeExecutionData[],
+	): Promise<Record<string, unknown> & Error> {
+		const { ctx } = createContextMock({ params, httpResponses, inputItems });
+		return new Tallyfy()
+			.execute.call(ctx)
+			.then(() => {
+				throw new Error('expected execute() to reject');
+			})
+			.catch((e: unknown) => e as Record<string, unknown> & Error);
+	}
+
+	it.each([
+		[
+			'a kickoff entry naming no field',
+			{ ...LAUNCH, kickoffValues: { values: [{ field: 'nope', value: 'x' }] } },
+			[TEMPLATE],
+			'Kickoff field "nope" not found on template BP1. Use the "Get kickoff fields" operation to list valid fields.',
+		],
+		[
+			'a dropdown value matching no option',
+			{ ...LAUNCH, kickoffValues: { values: [{ field: 'Plan', value: 'Platinum' }] } },
+			[TEMPLATE],
+			'Kickoff field "Plan": no dropdown option matches "Platinum"',
+		],
+		[
+			'a multiselect value matching no option',
+			{ ...LAUNCH, kickoffValues: { values: [{ field: 'Addons', value: 'SSO, Platinum' }] } },
+			[TEMPLATE],
+			'Kickoff field "Addons": no multiselect option matches "Platinum"',
+		],
+		[
+			'Update Dropdown Options on a field the step does not have',
+			{
+				resource: 'formField',
+				operation: 'updateDropdownOptions',
+				blueprintId: 'BP1',
+				stepId: 'S1',
+				captureFieldId: 'CF9',
+				dropdownOptions: 'A,B',
+			},
+			[{ data: { captures: [{ id: 'CF1' }] } }],
+			'Form field CF9 not found in step S1',
+		],
+		[
+			'Update Kickoff Field on a field the template does not have',
+			{
+				resource: 'formField',
+				operation: 'updateKickoffField',
+				blueprintId: 'BP1',
+				kickoffFieldId: 'KF9',
+				fieldData: '{"label":"x"}',
+			},
+			[TEMPLATE],
+			'Kickoff field KF9 not found on template BP1',
+		],
+		[
+			'Reorder Kickoff Fields naming a field the template does not have',
+			{
+				resource: 'formField',
+				operation: 'reorderKickoffField',
+				blueprintId: 'BP1',
+				fieldOrder: 'KF1,KF9',
+			},
+			[TEMPLATE],
+			'Kickoff field KF9 not found on template BP1',
+		],
+	])('throws a warning-level NodeOperationError for %s, message unchanged', async (_label, params, responses, message) => {
+		const thrown = await failure(params, responses);
+		expect(thrown).toBeInstanceOf(NodeOperationError);
+		expect(thrown.message).toBe(message);
+		expect(thrown.level).toBe('warning');
+		expect((thrown.context as Record<string, unknown>).itemIndex).toBe(0);
+	});
+
+	it('names the item that failed, not the first one, when several items run', async () => {
+		const withoutKf1 = { data: { title: 'T', prerun: [{ id: 'KF2', field_type: 'text' }] } };
+		const thrown = await failure(
+			{
+				resource: 'formField',
+				operation: 'updateKickoffField',
+				blueprintId: 'BP1',
+				kickoffFieldId: 'KF1',
+				fieldData: '{"label":"x"}',
+			},
+			// item 0: GET template (has KF1), PUT; item 1: GET template (no KF1) -> throws
+			[structuredClone(TEMPLATE), { data: {} }, withoutKf1],
+			[{ json: {} }, { json: {} }],
+		);
+		expect(thrown).toBeInstanceOf(NodeOperationError);
+		expect((thrown.context as Record<string, unknown>).itemIndex).toBe(1);
+	});
+
+	it('rethrows an API failure as the very same NodeApiError, so its HTTP details survive', async () => {
+		const axiosError = Object.assign(new Error('Request failed with status code 404'), {
+			isAxiosError: true,
+			response: { status: 404, data: { message: 'Not found' } },
+		});
+		const apiError = new NodeApiError(NODE, axiosError as never);
+		const thrown = await failure(
+			{ resource: 'process', operation: 'get', processId: 'P1' },
+			[{ __throw: apiError }],
+		);
+		expect(thrown).toBe(apiError);
+	});
+
+	it('wraps any other failure in a NodeOperationError for that item, keeping its message', async () => {
+		const thrown = await failure(
+			{ resource: 'process', operation: 'get', processId: 'P1' },
+			[{ __throw: new Error('boom') }],
+		);
+		expect(thrown).toBeInstanceOf(NodeOperationError);
+		expect(thrown.message).toBe('boom');
+		expect((thrown.context as Record<string, unknown>).itemIndex).toBe(0);
+	});
+
+	it('links every output item to the input item that produced it', async () => {
+		const { ctx } = createContextMock({
+			params: { resource: 'process', operation: 'get', processId: 'P1' },
+			httpResponses: [{ data: { id: 'P1' } }, { data: { id: 'P2' } }],
+			inputItems: [{ json: {} }, { json: {} }],
+		});
+		const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+		expect(result[0]).toHaveLength(2);
+		expect(result[0].map((item) => item.pairedItem)).toEqual([{ item: 0 }, { item: 1 }]);
+	});
+
+	it('links each element of a list response to its input item too', async () => {
+		const { ctx } = createContextMock({
+			params: { resource: 'comment', operation: 'list', taskId: 'T1', processId: 'P1' },
+			httpResponses: [{ data: { threads: { data: [{ id: 'C1' }, { id: 'C2' }] } } }],
+		});
+		const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+		expect(result[0].map((item) => item.json.id)).toEqual(['C1', 'C2']);
+		expect(result[0].map((item) => item.pairedItem)).toEqual([{ item: 0 }, { item: 0 }]);
+	});
+
+	it('links the continueOnFail error item as well', async () => {
+		const { ctx } = createContextMock({
+			params: { resource: 'process', operation: 'get', processId: 'P1' },
+			httpResponses: [{ __throw: new Error('boom') }],
+			continueOnFail: true,
+		});
+		const result = (await new Tallyfy().execute.call(ctx)) as INodeExecutionData[][];
+		expect(result[0][0]).toEqual({ json: { error: 'boom' }, pairedItem: { item: 0 } });
+	});
+});
+
+describe('Tallyfy node - description flags from the re-scaffold (#4)', () => {
+	const description = new Tallyfy().description;
+
+	it('is usable as an AI Agent tool', () => {
+		expect(description.usableAsTool).toBe(true);
+	});
+
+	it('still has exactly one main input and one main output', () => {
+		expect(description.inputs).toEqual(['main']);
+		expect(description.outputs).toEqual(['main']);
+	});
+
+	it('shows the tag colour as a colour picker under the same parameter name', () => {
+		const tagColor = description.properties.find((p) => p.name === 'tagColor');
+		expect(tagColor).toMatchObject({ type: 'color', default: '' });
+	});
+});

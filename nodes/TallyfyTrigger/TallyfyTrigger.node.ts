@@ -8,8 +8,9 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 	IHttpRequestOptions,
+	JsonObject,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 // Cap the number of ids we remember per event so workflow static data stays small.
 const SEEN_CAP = 5000;
@@ -97,7 +98,9 @@ export class TallyfyTrigger implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Tallyfy Trigger',
 		name: 'tallyfyTrigger',
-		icon: 'file:tallyfy.svg',
+		// The same file fills both theme slots on purpose: the icon is a solid tile that reads on
+		// light and dark canvases alike, so there is no separate dark artwork to point at.
+		icon: { light: 'file:../../icons/tallyfy.svg', dark: 'file:../../icons/tallyfy.svg' },
 		group: ['trigger'],
 		version: 1,
 		subtitle: '={{$parameter["mode"] === "webhook" ? "Instant webhook" : $parameter["event"]}}',
@@ -107,7 +110,7 @@ export class TallyfyTrigger implements INodeType {
 		},
 		polling: true,
 		inputs: [],
-		outputs: ['main'],
+		outputs: [NodeConnectionTypes.Main],
 		credentials: [
 			{
 				name: 'tallyfyApi',
@@ -330,9 +333,12 @@ export class TallyfyTrigger implements INodeType {
 						staticData.watcherId = existing.id;
 						return true;
 					}
-				} catch {
+				} catch (error) {
 					// Listing may be unavailable (endpoint not deployed, or the token lacks rights);
 					// return false so create() runs and surfaces the authoritative admin/403 error.
+					this.logger.debug('Tallyfy Trigger: could not list webhook watchers, so a new one will be created', {
+						error: error instanceof Error ? error.message : String(error),
+					});
 					return false;
 				}
 				return false;
@@ -391,7 +397,12 @@ export class TallyfyTrigger implements INodeType {
 							{ level: 'warning' },
 						);
 					}
-					throw error;
+					// An API failure already arrives as a NodeApiError, and its constructor hands that
+					// same instance back unchanged. Anything else becomes a NodeOperationError.
+					if (error instanceof NodeApiError) {
+						throw new NodeApiError(this.getNode(), error as unknown as JsonObject);
+					}
+					throw new NodeOperationError(this.getNode(), error as Error);
 				}
 			},
 
@@ -411,8 +422,12 @@ export class TallyfyTrigger implements INodeType {
 						'DELETE',
 						`/organizations/${organizationId}/remove-watcher/${watcherId}`,
 					);
-				} catch {
-					// Swallow so deactivation never blocks; the watcher may already be gone.
+				} catch (error) {
+					// Swallow so deactivation never blocks; the watcher may already be gone. Logged,
+					// because if it is NOT gone Tallyfy keeps posting to a URL nobody listens on.
+					this.logger.warn(`Tallyfy Trigger: could not remove webhook watcher ${String(watcherId)}`, {
+						error: error instanceof Error ? error.message : String(error),
+					});
 				}
 				delete staticData.watcherId;
 				return true;

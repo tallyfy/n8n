@@ -25,14 +25,12 @@ fi
 # Build the node
 echo ""
 echo "Building the Tallyfy node..."
-if [ -f "build.sh" ]; then
-    ./build.sh
-else
-    echo "Running TypeScript compiler..."
-    ./node_modules/.bin/tsc
-    echo "Copying icons..."
-    ./node_modules/.bin/gulp build:icons
+if [ ! -d "node_modules" ]; then
+    echo "Error: node_modules not found. Run 'npm ci' first."
+    exit 1
 fi
+# n8n-node build (from @n8n/node-cli) plus the repository's include and icon checks.
+npm run build || exit 1
 
 # Link the package
 echo ""

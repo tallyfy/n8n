@@ -62,6 +62,7 @@ export interface ContextMockConfig {
 
 export interface ContextMock {
 	/** Cast to whichever n8n function interface a given method needs. */
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any -- one mock stands in for four n8n context interfaces
 	ctx: any;
 	httpMock: HttpMock;
 	staticData: IDataObject;
@@ -132,13 +133,15 @@ export function createContextMock(config: ContextMockConfig = {}): ContextMock {
 	const ctx = {
 		getInputData: () => inputItems,
 		getNodeParameter,
-		getCredentials: async (_name: string) => credentials,
+		getCredentials: async () => credentials,
 		continueOnFail: () => config.continueOnFail ?? false,
 		getNode: () => node,
 		getMode: () => config.mode ?? 'trigger',
-		getWorkflowStaticData: (_type: string) => staticData,
-		getNodeWebhookUrl: (_name: string) => config.webhookUrl,
+		getWorkflowStaticData: () => staticData,
+		getNodeWebhookUrl: () => config.webhookUrl,
 		getBodyData: () => config.bodyData ?? {},
+		// n8n hands every node context a logger; the trigger's webhook lifecycle writes to it.
+		logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() },
 		helpers: {
 			httpRequestWithAuthentication: httpMock,
 			returnJsonArray,

@@ -1,3 +1,7 @@
+/* eslint-disable @n8n/community-nodes/no-restricted-imports, @n8n/community-nodes/no-restricted-globals --
+ * Those two rules guard code that runs inside n8n. This is a Jest helper for the opt-in live suite
+ * (TALLYFY_LIVE=1), which reads its staging credentials from the environment or a file. It never
+ * ships in the npm package, and n8n's community package scan does not lint test/. */
 import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';

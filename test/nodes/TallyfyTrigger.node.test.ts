@@ -1,5 +1,6 @@
 import type { INodeExecutionData, IWebhookResponseData } from 'n8n-workflow';
-import { TallyfyTrigger } from '../../nodes/Tallyfy/TallyfyTrigger.node';
+import { NodeApiError, NodeOperationError } from 'n8n-workflow';
+import { TallyfyTrigger } from '../../nodes/TallyfyTrigger/TallyfyTrigger.node';
 import { createContextMock, requestAt } from '../helpers/mocks';
 
 const BASE = 'https://go.tallyfy.com/api';
@@ -193,5 +194,85 @@ describe('TallyfyTrigger - instant webhook event filtering', () => {
 		const result = (await new TallyfyTrigger().webhook.call(ctx)) as IWebhookResponseData;
 		expect(result.workflowData).toBeDefined();
 		expect(result.workflowData![0][0].json).toEqual({ event: 'task.assigned' });
+	});
+});
+
+// tallyfy/n8n#4: n8n's verified-node rules forbid a webhook lifecycle method from swallowing an
+// error silently or rethrowing a raw one. These lock what the fix changed and what it did not.
+describe('TallyfyTrigger - lifecycle errors are logged or wrapped (#4)', () => {
+	const NODE = {
+		id: 'test-node',
+		name: 'Tallyfy',
+		type: 'n8n-nodes-tallyfy.tallyfy',
+		typeVersion: 1,
+		position: [0, 0] as [number, number],
+		parameters: {},
+	};
+
+	it('checkExists still answers false when the watcher list fails, and now logs why', async () => {
+		const { ctx } = createContextMock({
+			triggerStyle: true,
+			params: { mode: 'webhook' },
+			webhookUrl: 'https://n8n.example.com/webhook/abc',
+			httpResponses: [{ __throw: new Error('listing unavailable') }],
+		});
+		const exists = await new TallyfyTrigger().webhookMethods.default.checkExists.call(ctx);
+		expect(exists).toBe(false);
+		expect(ctx.logger.debug).toHaveBeenCalledTimes(1);
+		expect(ctx.logger.debug.mock.calls[0][1]).toEqual({ error: 'listing unavailable' });
+	});
+
+	it('delete still never blocks deactivation, and now warns that the watcher may remain', async () => {
+		const { ctx, staticData } = createContextMock({
+			triggerStyle: true,
+			params: { mode: 'webhook' },
+			staticData: { watcherId: 'WATCH1' },
+			httpResponses: [{ __throw: new Error('remove failed') }],
+		});
+		const deleted = await new TallyfyTrigger().webhookMethods.default.delete.call(ctx);
+		expect(deleted).toBe(true);
+		expect(staticData.watcherId).toBeUndefined();
+		expect(ctx.logger.warn).toHaveBeenCalledTimes(1);
+		expect(ctx.logger.warn.mock.calls[0][0]).toContain('WATCH1');
+	});
+
+	it('create rethrows a non-403 API failure as the very same NodeApiError', async () => {
+		const axiosError = Object.assign(new Error('Request failed with status code 500'), {
+			isAxiosError: true,
+			response: { status: 500, data: { message: 'Server error' } },
+		});
+		const apiError = new NodeApiError(NODE, axiosError as never);
+		const { ctx } = createContextMock({
+			triggerStyle: true,
+			params: { mode: 'webhook' },
+			webhookUrl: 'https://n8n.example.com/webhook/abc',
+			httpResponses: [{ data: { id: 'USER1' } }, { __throw: apiError }],
+		});
+		await expect(new TallyfyTrigger().webhookMethods.default.create.call(ctx)).rejects.toBe(apiError);
+	});
+
+	it('create wraps any other failure in a NodeOperationError with the same message', async () => {
+		const { ctx } = createContextMock({
+			triggerStyle: true,
+			params: { mode: 'webhook' },
+			webhookUrl: 'https://n8n.example.com/webhook/abc',
+			httpResponses: [{ data: { id: 'USER1' } }, { __throw: new Error('socket hang up') }],
+		});
+		const thrown = await new TallyfyTrigger()
+			.webhookMethods.default.create.call(ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e as Error);
+		expect(thrown).toBeInstanceOf(NodeOperationError);
+		expect(thrown!.message).toBe('socket hang up');
+	});
+
+	it('is a trigger with one main output and the shared icon in both theme slots', () => {
+		const description = new TallyfyTrigger().description;
+		expect(description.inputs).toEqual([]);
+		expect(description.outputs).toEqual(['main']);
+		expect(description.icon).toEqual({
+			light: 'file:../../icons/tallyfy.svg',
+			dark: 'file:../../icons/tallyfy.svg',
+		});
 	});
 });

@@ -1,3 +1,7 @@
+/* eslint-disable @n8n/community-nodes/no-restricted-imports, @n8n/community-nodes/no-restricted-globals, @n8n/community-nodes/no-dangerous-functions, @n8n/community-nodes/require-node-api-error --
+ * Those four rules guard code that runs inside n8n. This is a Jest test that drives a repository
+ * script through child_process and temporary files. It never ships in the npm package, and n8n's
+ * community package scan does not lint test/. */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -11,10 +15,12 @@ import * as path from 'path';
 // this repo publishes to npm immediately and irreversibly (even a failed run signs a permanent
 // public provenance statement). So the guard lives in a script and its behaviour is proven here.
 //
-// Issue #43: `gulp build:icons` is `src('nodes/**/*.svg').pipe(dest('dist/nodes'))`. A glob with
+// Issue #43: `gulp build:icons` was `src('nodes/**/*.svg').pipe(dest('dist/nodes'))`. A glob with
 // magic characters does not error when it matches nothing, so gulp copied zero files and exited
 // 0, and `npm run build` exited 0 with it. Measured before the fix, with the glob pointed at
 // `nodes/**/*.svg.notreal` and dist removed first: build exit 0, zero svg under dist/nodes.
+// Since 2026-10-18 the build is `n8n-node build` (tallyfy/n8n#4), whose static-file copy has the
+// same blind spot, and the icons live in icons/ at the repository root, copied to dist/icons/.
 //
 // Both directions are asserted here rather than only the failing one. A gate that refuses
 // everything is indistinguishable from a working gate if you only ever test the red case.
@@ -89,10 +95,10 @@ describe('scripts/check-icons.sh', () => {
 	});
 
 	// The GREEN direction on the real repository. This is not a fixture: it asserts the icons this
-	// package actually ships are found where the script looks for them, so a rename of nodes/ or a
-	// change to the gulp destination shows up here.
+	// package actually ships are found where the script looks for them, so a rename of icons/ or a
+	// change to where the build copies them shows up here.
 	it('this repo has at least one source icon, so the check is never vacuous', () => {
-		const srcDir = path.join(REPO_ROOT, 'nodes');
+		const srcDir = path.join(REPO_ROOT, 'icons');
 		const found = fs
 			.readdirSync(srcDir, { recursive: true, encoding: 'utf8' })
 			.filter((p) => p.endsWith('.svg'));
