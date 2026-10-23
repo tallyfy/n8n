@@ -194,6 +194,19 @@ Every item the Tallyfy node outputs is linked to the input item that produced it
 
 The Tallyfy node is marked as usable by an n8n **AI Agent**. Connect it to an AI Agent node's **Tool** input and set the resource and operation the agent may use, as you would in an ordinary workflow. The agent calls Tallyfy with your Tallyfy API credential. No environment variable is needed.
 
+### Using Tallyfy's MCP server from an AI Agent
+
+Tallyfy also runs a public MCP server at `https://mcp.tallyfy.com/mcp`. Connected through n8n's own **MCP Client Tool** node, it gives an AI Agent the whole Tallyfy tool set at once (129 tools on 2026-10-23), where the Tallyfy node gives it the one resource and operation you pick. You need no package from this repository for it.
+
+1. Add an **MCP Client Tool** node to the AI Agent node's **Tool** input.
+2. **Endpoint**: `https://mcp.tallyfy.com/mcp`. **Server Transport**: HTTP Streamable.
+3. **Authentication**: Multiple Headers Auth, with two headers:
+   - `Authorization` set to `Bearer ` followed by your Tallyfy Personal Access Token, the same token as in the Tallyfy API credential (**Settings > Integrations > REST API** in Tallyfy).
+   - `X-Organization-ID` set to your Organization ID, as in the credential. The server needs it to know which organization to act in when the token does not say.
+4. **Tools to Include**: all of them, or only the ones the agent should use.
+
+The server acts as the user who owns the token, with that user's permissions in Tallyfy.
+
 ## Compatibility
 
 - Runs as an n8n community node (nodes API version 1). Install it from **Settings > Community Nodes** or with `npm install n8n-nodes-tallyfy`.
