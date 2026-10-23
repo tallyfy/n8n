@@ -64,6 +64,31 @@ exists) and its own tag. Nobody has decided to cut it yet.
 - Both nodes ship a codex file that files them under the **Productivity** category and links the
   Tallyfy n8n documentation. The **Tallyfy API** credential declares its own icon, as n8n's rules
   require; n8n already showed the node's icon for it, so it looks the same. (#4)
+- **New Scheduled Job resource for Tallyfy's Once and Recurring jobs**, which api-v2 calls
+  recurring jobs. Operations: Create, Get, Get Many, Get History, Update, Pause, Resume and
+  Delete. (#53)
+  - **Create** schedules a task or a process launch. A Once job runs one time, on the start date
+    at the start time. A Recurring job repeats hourly, daily, weekly on the days you pick, monthly
+    on a day or on a weekday of the month, or yearly, with an optional end date and run limit. It
+    can be saved paused. The job type's id is looked up by its key on every create, because it
+    differs between Tallyfy environments.
+  - **A task job's deadline depends on how often it runs.** A Once task job takes a fixed
+    Deadline. A Recurring one takes **Due After**, and each task it creates is due that long after
+    it is created; the API refuses a fixed deadline on a repeating job (api-v2 #10872). A Tallyfy
+    version whose create-task rules lack `deadline_offset` gets a message before anything is
+    created.
+  - **A launch job** takes a blueprint, an optional process name, and kickoff values resolved and
+    encoded exactly as Process: Launch does them.
+  - **Get Many** can list only the jobs the connected user created (`created_by=me`).
+  - **Update, Pause and Resume** read the job and send it all back with the change, because the
+    API takes no partial update and has no pause or resume route. A finished job keeps its
+    `completed` status, the only one the API accepts for it.
+  - **A job the connected user may not manage reads as missing.** api-v2 answers it with the same
+    404 as a job that does not exist (api-v2 #10896), so the node's message says both.
+  - Weekdays are sent in both forms the API has used, the list `days_of_week` (api-v2 #8974) and
+    the single `day_of_week`, and each version ignores the one it does not know.
+  - Each operation outputs the job, or each job or history entry, without the API's `data`
+    envelope.
 
 ### Fixed
 - Form field **Update Value** with **As Guest** now sends the guest's access code, which is

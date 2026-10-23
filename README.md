@@ -32,7 +32,7 @@ Then restart your n8n instance.
 
 ## Operations
 
-The **Tallyfy** node exposes **96 operations across 12 resources**, plus the **Tallyfy Trigger** node described further below.
+The **Tallyfy** node exposes **104 operations across 13 resources**, plus the **Tallyfy Trigger** node described further below.
 
 ### Tallyfy node (actions)
 
@@ -76,6 +76,12 @@ Get Many, Create, Update, and Delete tags, plus attach or detach a tag on a temp
 #### 📁 Folder
 
 Get Many, Create, Update, and Delete folders, plus Add To Folder and Remove From Folder for organizing templates and processes.
+
+#### Scheduled Job (once and recurring)
+
+Create a job that runs once at a set time, or repeats hourly, daily, weekly on chosen days, monthly (on a day, or on a weekday such as the second Tuesday), or yearly. Each run creates a task or launches a process from a blueprint, with kickoff values set as for **Launch**. Also Get, Get Many (optionally only the jobs you created), Get History, Update, Pause, Resume, and Delete.
+
+A task job that runs once takes a fixed deadline. A recurring task job takes **Due After** instead: each task is due that many minutes, hours, days, weeks, or months after it is created. A member sees only the jobs they created and the launch jobs for blueprints they may launch, and an admin sees every job; asking for any other job fails with a message that says so.
 
 #### 🔍 Search
 

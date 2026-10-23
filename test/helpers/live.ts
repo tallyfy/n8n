@@ -2,7 +2,7 @@
  * Those two rules guard code that runs inside n8n. This is a Jest helper for the opt-in live suite
  * (TALLYFY_LIVE=1), which reads its staging credentials from the environment or a file. It never
  * ships in the npm package, and n8n's community package scan does not lint test/. */
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import type { IDataObject, IHttpRequestOptions, INodeExecutionData } from 'n8n-workflow';
@@ -50,8 +50,13 @@ let cachedCreds: LiveCreds | null = null;
 /** Load staging credentials from the gitignored JSON at the GitHub root (path overridable). */
 export function loadCreds(): LiveCreds {
 	if (cachedCreds) return cachedCreds;
+	// The GitHub root is ~/GitHub on one Mac and ~/Documents/GitHub on the other, so the first
+	// one that holds the file wins when the environment names none.
 	const path =
 		process.env.TALLYFY_STAGING_CREDS ||
+		[join(homedir(), 'GitHub'), join(homedir(), 'Documents', 'GitHub')]
+			.map((root) => join(root, 'tallyfy_staging_credentials.json'))
+			.find((candidate) => existsSync(candidate)) ||
 		join(homedir(), 'Documents', 'GitHub', 'tallyfy_staging_credentials.json');
 	const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, string>;
 	if (!raw.access_token) {
