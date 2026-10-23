@@ -52,17 +52,22 @@ let cachedCreds: LiveCreds | null = null;
  * tallyfy_staging_credentials.json at the GitHub root, ~/GitHub. There is no second guess: on a
  * machine whose repositories live elsewhere, ~/GitHub is a link to that folder or the variable is set.
  */
-export function stagingCredsPath(): string {
-	return (
-		process.env.TALLYFY_STAGING_CREDS ||
-		join(homedir(), 'GitHub', 'tallyfy_staging_credentials.json')
-	);
+export function stagingCredsPath(
+	env: Record<string, string | undefined> = process.env,
+	home: string = homedir(),
+): string {
+	return env.TALLYFY_STAGING_CREDS || join(home, 'GitHub', 'tallyfy_staging_credentials.json');
 }
 
 /** Load staging credentials from the gitignored JSON at the GitHub root (path overridable). */
 export function loadCreds(): LiveCreds {
 	if (cachedCreds) return cachedCreds;
-	const path = stagingCredsPath();
+	cachedCreds = readStagingCreds(stagingCredsPath());
+	return cachedCreds;
+}
+
+/** Read one staging credentials file, naming the path when it is missing or has no token. */
+export function readStagingCreds(path: string): LiveCreds {
 	if (!existsSync(path)) {
 		throw new Error(
 			`No staging credentials at ${path}. Set TALLYFY_STAGING_CREDS to the file's path.`,
@@ -72,13 +77,12 @@ export function loadCreds(): LiveCreds {
 	if (!raw.access_token) {
 		throw new Error(`Staging credentials at ${path} have no access_token`);
 	}
-	cachedCreds = {
+	return {
 		accessToken: raw.access_token,
 		baseUrl: raw.api_endpoint || 'https://staging.go.tallyfy.com/api',
 		organizationId: TEST_ORG,
 		userId: raw.user_id,
 	};
-	return cachedCreds;
 }
 
 /**

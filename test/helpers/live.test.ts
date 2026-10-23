@@ -5,26 +5,23 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { loadCreds, stagingCredsPath } from './live';
+import { readStagingCreds, stagingCredsPath } from './live';
 
 // #59. The live suite reads staging credentials from ~/GitHub/tallyfy_staging_credentials.json
 // unless TALLYFY_STAGING_CREDS names another file. It used to fall back to ~/Documents/GitHub,
 // which on one of our machines is a nearly empty folder that is not the GitHub root.
+//
+// The environment and the home directory are passed in. Setting process.env.HOME inside a Jest
+// test does not reach os.homedir(), which reads the worker's real environment (measured in CI on
+// tallyfy/n8n#60), so a test that relied on it would be checking the runner's home instead.
 describe('live suite staging credentials path (#59)', () => {
-	const before = { home: process.env.HOME, creds: process.env.TALLYFY_STAGING_CREDS };
 	let home: string;
 
 	beforeEach(() => {
 		home = fs.mkdtempSync(path.join(os.tmpdir(), 'n8n-live-creds-'));
-		process.env.HOME = home;
-		delete process.env.TALLYFY_STAGING_CREDS;
 	});
 
 	afterEach(() => {
-		if (before.home === undefined) delete process.env.HOME;
-		else process.env.HOME = before.home;
-		if (before.creds === undefined) delete process.env.TALLYFY_STAGING_CREDS;
-		else process.env.TALLYFY_STAGING_CREDS = before.creds;
 		fs.rmSync(home, { recursive: true, force: true });
 	});
 
@@ -34,27 +31,30 @@ describe('live suite staging credentials path (#59)', () => {
 	}
 
 	it('defaults to tallyfy_staging_credentials.json under ~/GitHub', () => {
-		expect(os.homedir()).toBe(home);
-		expect(stagingCredsPath()).toBe(path.join(home, 'GitHub', 'tallyfy_staging_credentials.json'));
+		expect(stagingCredsPath({}, home)).toBe(
+			path.join(home, 'GitHub', 'tallyfy_staging_credentials.json'),
+		);
+		// With nothing passed it uses the real home directory.
+		expect(stagingCredsPath({})).toBe(
+			path.join(os.homedir(), 'GitHub', 'tallyfy_staging_credentials.json'),
+		);
 	});
 
 	it('uses TALLYFY_STAGING_CREDS when it is set', () => {
 		const elsewhere = path.join(home, 'elsewhere', 'creds.json');
-		process.env.TALLYFY_STAGING_CREDS = elsewhere;
-		expect(stagingCredsPath()).toBe(elsewhere);
+		expect(stagingCredsPath({ TALLYFY_STAGING_CREDS: elsewhere }, home)).toBe(elsewhere);
 	});
 
 	it('does not fall back to ~/Documents/GitHub, and names the path it wanted', () => {
 		plant(path.join(home, 'Documents', 'GitHub', 'tallyfy_staging_credentials.json'), 'docs-token');
-		expect(() => loadCreds()).toThrow(
+		expect(() => readStagingCreds(stagingCredsPath({}, home))).toThrow(
 			`No staging credentials at ${path.join(home, 'GitHub', 'tallyfy_staging_credentials.json')}.`,
 		);
 	});
 
-	// Last, because loadCreds() keeps what it read for the rest of the module's life.
 	it('reads the file at ~/GitHub', () => {
 		plant(path.join(home, 'Documents', 'GitHub', 'tallyfy_staging_credentials.json'), 'docs-token');
 		plant(path.join(home, 'GitHub', 'tallyfy_staging_credentials.json'), 'github-token');
-		expect(loadCreds().accessToken).toBe('github-token');
+		expect(readStagingCreds(stagingCredsPath({}, home)).accessToken).toBe('github-token');
 	});
 });
