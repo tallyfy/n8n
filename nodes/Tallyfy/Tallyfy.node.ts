@@ -3022,7 +3022,7 @@ export class Tallyfy implements INodeType {
 				description: 'The days a Weekly job runs on. A Tallyfy version that stores one weekday keeps the earliest of them, counting from Monday.',
 			},
 			{
-				displayName: 'Monthly On',
+				displayName: 'Monthly Schedule',
 				name: 'monthlyOn',
 				type: 'options',
 				options: [
@@ -5309,7 +5309,12 @@ export class Tallyfy implements INodeType {
 								level: 'warning',
 							});
 						}
-						throw error;
+						// Anything else goes on as it came: both constructors hand back an error of their
+						// own class unchanged, and wrap any other error for this item.
+						if (error instanceof NodeApiError) {
+							throw new NodeApiError(this.getNode(), error as unknown as JsonObject, { itemIndex: i });
+						}
+						throw new NodeOperationError(this.getNode(), error as Error, { itemIndex: i });
 					}
 				}
 
