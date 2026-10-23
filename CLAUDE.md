@@ -47,8 +47,8 @@ one-off.
   **The reason it is safe, and the only reason: pushing to a BRANCH publishes nothing.**
   `.github/workflows/release.yml` is the only workflow that PUBLISHES anything, and it triggers on
   `push: tags: ['v*']`, never on a branch.
-  The droplet has no CI/CD either ("**CI/CD**: None — deployed manually", under Production
-  Deployment).
+  Tallyfy's own n8n instance is deployed from the private repo `tallyfy/n8n-internal`, never from
+  here (see "Tallyfy's own n8n instance" below).
 
   ⚠️ **"a commit landing on `main` starts zero workflow runs" was TRUE until 2026-08-28 and is now
   FALSE. Do not read a workflow run on your own SHA as evidence that something published.**
@@ -289,21 +289,6 @@ one-off.
 
 This repo is public. All its CI runs on GitHub-hosted runners and it sets no `CI_*` variable.
 
-## Production Deployment
+## Tallyfy's own n8n instance
 
-- **Droplet**: answers-n8n (64.227.104.197), ID 405593214
-- **Path**: /home/n8n/
-- **Container**: n8n (port 5678, image: n8n-n8n)
-- **Database**: PostgreSQL 17 on same droplet (database: n8n, 10 MB)
-- **Docker network**: n8n
-- **Tunnel**: n8n.tallyfy.com via mcp&answers tunnel (2a507cba-31a4-4732-adf9-7a137b9b9b4a)
-- **CI/CD**: None — deployed manually
-- **Backups**: DO usage-based weekly backups enabled (2026-03-29)
-
-**Full DO infrastructure docs**: See `systems/docs/DigitalOcean_Infrastructure.md`
-
-## Known Issues
-
-- **Boot-order dependency**: After droplet reboot, PostgreSQL must listen on Docker bridge IPs (`172.17.0.1`) before n8n can start. PG `listen_addresses` includes Docker bridges but they don't exist at PG boot time. **Fix**: Restart PG after boot (`systemctl restart postgresql@17-main`) then restart n8n (`docker restart n8n`).
-- No automated deployment pipeline
-- Workflows/credentials backed up via DO droplet-level weekly backups (enabled 2026-03-29)
+Tallyfy runs its own n8n at n8n.tallyfy.com, on the droplet named answers-n8n. Its config, deploys, backups, workflows and known issues live in the private repo `tallyfy/n8n-internal`, which deploys it from GitHub Actions; the droplet itself is in `systems/docs/DigitalOcean_Infrastructure.md`. This repo is public, so it names no internal address, droplet id or tunnel id (work-queue#3641, 2026-10-23).
