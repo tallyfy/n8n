@@ -82,6 +82,12 @@ d('Tallyfy live API', () => {
 			(i) => rawApi('DELETE', `/organizations/${TEST_ORG}/guests/${i.email}`),
 			{ per_page: 100 },
 		);
+		// Scheduled jobs (#53). GET recurring-jobs reads no search term, so list this user's own.
+		await sweep(
+			`/organizations/${TEST_ORG}/recurring-jobs`,
+			(i) => rawApi('DELETE', `/organizations/${TEST_ORG}/recurring-jobs/${i.id}`),
+			{ created_by: 'me', per_page: 100 },
+		);
 	});
 
 	describe('Blueprint (template) CRUD', () => {
@@ -133,6 +139,29 @@ d('Tallyfy live API', () => {
 			await expect(
 				rawApi('GET', `/organizations/${TEST_ORG}/checklists/${bpId}`),
 			).rejects.toThrow();
+		});
+
+		// #55: the API reads per_page, not limit, and never sends has_more_pages, so Return All
+		// used to stop at the default page of 10. It must now return every blueprint the API counts.
+		it('returns every blueprint for Return All, and a Limit above 10 is honoured', async () => {
+			const counted = await rawApi('GET', `/organizations/${TEST_ORG}/checklists`, undefined, { per_page: 1 });
+			const total = Number(((counted.meta as IDataObject).pagination as IDataObject).total);
+			// Over 10, or the old one-page loop would pass this too (22 on 2026-10-23).
+			expect(total).toBeGreaterThan(10);
+
+			const all = await runLive({ resource: 'blueprint', operation: 'getAll', returnAll: true, filters: {} });
+			expect(all.out.length).toBe(total);
+			expect(all.captured[0].options.qs).toMatchObject({ per_page: 100, page: 1 });
+
+			const limited = await runLive({
+				resource: 'blueprint',
+				operation: 'getAll',
+				returnAll: false,
+				filters: {},
+				limit: 12,
+			});
+			const rows = ((limited.out[0].json as IDataObject).data as IDataObject[]) || [];
+			expect(rows.length).toBe(Math.min(12, total));
 		});
 
 		it('lists blueprints (getAll, limited) and returns an array', async () => {
@@ -838,6 +867,169 @@ d('Tallyfy live API', () => {
 				expect(hit!.type).toBe('Blueprint');
 				expect(hit!.name).toBe(title);
 			} finally {
+				await rawApi('DELETE', `/organizations/${TEST_ORG}/checklists/${bpId}`).catch(() => undefined);
+			}
+		});
+	});
+
+	// tallyfy/n8n#53. Every job here starts at least two days out, so none can fire while the test
+	// runs, and each is deleted at the end of its test (the sweeper above is the backstop).
+	describe('Scheduled Job lifecycle (#53)', () => {
+		/** A day N days from now, as YYYY-MM-DD in UTC. */
+		const dayFromNow = (days: number): string =>
+			new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+
+		const jobUrl = (id: unknown) => `/organizations/${TEST_ORG}/recurring-jobs/${String(id)}`;
+
+		it('creates a Once task job, reads, finds, pauses, resumes, renames, reads history and deletes it', async () => {
+			const name = uniq('sj-once');
+			const created = await runLive({
+				resource: 'scheduledJob',
+				operation: 'create',
+				jobName: name,
+				jobType: 'createTask',
+				frequency: 'once',
+				startDate: `${dayFromNow(2)}T00:00:00`,
+				startTime: '12:00',
+				taskTitle: uniq('sj-task'),
+				taskType: 'task',
+				taskDeadline: `${dayFromNow(4)} 17:00:00`,
+				taskOptions: {},
+				scheduledJobFields: { description: 'n8n live test' },
+			});
+			// The type id was looked up, then the job was created.
+			expect(String(created.captured[0].options.url)).toContain('/recurring-job-types');
+			expect(created.captured[1].options.method).toBe('POST');
+			const job = created.out[0].json as IDataObject;
+			const jobId = job.id;
+			try {
+				expect(jobId).toBeTruthy();
+				expect(job.name).toBe(name);
+				expect(job.status).toBe('active');
+				expect(job.max_occurrences).toBe(1);
+				// The server stamps who created it (api-v2#10871).
+				expect((job.data as IDataObject).created_by).toBeTruthy();
+
+				// GET
+				const got = await runLive({ resource: 'scheduledJob', operation: 'get', scheduledJobId: String(jobId) });
+				expect((got.out[0].json as IDataObject).id).toBe(jobId);
+
+				// GET MANY with created_by=me finds it, and the request carried the filter.
+				const mine = await runLive({
+					resource: 'scheduledJob',
+					operation: 'getAll',
+					returnAll: true,
+					createdByMe: true,
+				});
+				expect(mine.captured[0].options.qs).toMatchObject({ created_by: 'me', per_page: 100, page: 1 });
+				expect(mine.out.map((o) => (o.json as IDataObject).id)).toContain(jobId);
+
+				// PAUSE, then RESUME: each reads the job and sends it all back with the new status.
+				const paused = await runLive({ resource: 'scheduledJob', operation: 'pause', scheduledJobId: String(jobId) });
+				expect(paused.captured.map((c) => c.options.method)).toEqual(['GET', 'PUT']);
+				expect((paused.out[0].json as IDataObject).status).toBe('paused');
+				const resumed = await runLive({ resource: 'scheduledJob', operation: 'resume', scheduledJobId: String(jobId) });
+				expect((resumed.out[0].json as IDataObject).status).toBe('active');
+
+				// UPDATE the name only; everything else goes back as it was.
+				const renamed = `${name}-upd`;
+				const updated = await runLive({
+					resource: 'scheduledJob',
+					operation: 'update',
+					scheduledJobId: String(jobId),
+					scheduledJobUpdateFields: { name: renamed },
+				});
+				const after = updated.out[0].json as IDataObject;
+				expect(after.name).toBe(renamed);
+				expect(after.max_occurrences).toBe(1);
+				expect((after.data as IDataObject).title).toBe((job.data as IDataObject).title);
+
+				// HISTORY: it has never run, so there is nothing to output.
+				const history = await runLive({ resource: 'scheduledJob', operation: 'getHistory', scheduledJobId: String(jobId) });
+				expect(String(history.captured[0].options.url)).toContain(`/recurring-jobs/${String(jobId)}/history`);
+				expect(history.out).toEqual([]);
+			} finally {
+				// DELETE through the node, then confirm the job is gone. Guarded so a failed create
+				// reports its own error rather than this one's.
+				if (jobId) {
+					const deleted = await runLive({ resource: 'scheduledJob', operation: 'delete', scheduledJobId: String(jobId) });
+					expect(deleted.captured[0].options.method).toBe('DELETE');
+				}
+			}
+			await expect(rawApi('GET', jobUrl(jobId))).rejects.toThrow(/404/);
+
+			// The deleted job's 404 comes back through the node as the missing-or-hidden message.
+			await expect(
+				runLive({ resource: 'scheduledJob', operation: 'get', scheduledJobId: String(jobId) }),
+			).rejects.toThrow(/was not found\. Either it does not exist in this organization, or the connected user may not manage it/);
+		});
+
+		it('creates a Recurring weekly task job with deadline_offset, which the API stores, then deletes it', async () => {
+			const created = await runLive({
+				resource: 'scheduledJob',
+				operation: 'create',
+				jobName: uniq('sj-weekly'),
+				jobType: 'createTask',
+				frequency: 'recurring',
+				recurringType: 'weekly',
+				interval: 1,
+				daysOfWeek: [1, 3],
+				startDate: dayFromNow(2),
+				startTime: '08:00',
+				taskTitle: uniq('sj-task'),
+				taskType: 'task',
+				deadlineOffsetValue: 2,
+				deadlineOffsetUnit: 'days',
+				taskOptions: {},
+				scheduledJobFields: { startPaused: true },
+			});
+			const job = created.out[0].json as IDataObject;
+			try {
+				expect(job.status).toBe('paused');
+				const stored = (await rawApi('GET', jobUrl(job.id))).data as IDataObject;
+				expect((stored.data as IDataObject).deadline_offset).toEqual({ value: 2, unit: 'days' });
+				expect((stored.data as IDataObject).deadline ?? null).toBeNull();
+				const schedule = stored.schedule as IDataObject;
+				expect(schedule.recurring_type).toBe('weekly');
+				// Monday and Wednesday where the API keeps a list (api-v2#8974), else Monday alone.
+				if (Array.isArray(schedule.days_of_week)) {
+					expect(schedule.days_of_week).toEqual([1, 3]);
+				} else {
+					expect(schedule.day_of_week).toBe(1);
+				}
+			} finally {
+				if (job?.id) await rawApi('DELETE', jobUrl(job.id)).catch(() => undefined);
+			}
+		});
+
+		it('creates a Launch Process job for a blueprint, then deletes it', async () => {
+			const bp = await rawApi('POST', `/organizations/${TEST_ORG}/checklists`, {
+				title: uniq('sj-bp'),
+				type: 'procedure',
+			});
+			const bpId = (data(bp) as IDataObject).id as string;
+			let jobId: unknown;
+			try {
+				const created = await runLive({
+					resource: 'scheduledJob',
+					operation: 'create',
+					jobName: uniq('sj-launch'),
+					jobType: 'launchProcess',
+					frequency: 'once',
+					startDate: dayFromNow(3),
+					startTime: '10:15',
+					blueprintId: bpId,
+					processName: uniq('sj-run'),
+					kickoffValues: {},
+					processOptions: {},
+					scheduledJobFields: {},
+				});
+				const job = created.out[0].json as IDataObject;
+				jobId = job.id;
+				expect((job.data as IDataObject).checklist_id).toBe(bpId);
+				expect((job.schedule as IDataObject).recurring_type).toBe('daily');
+			} finally {
+				if (jobId) await rawApi('DELETE', jobUrl(jobId)).catch(() => undefined);
 				await rawApi('DELETE', `/organizations/${TEST_ORG}/checklists/${bpId}`).catch(() => undefined);
 			}
 		});

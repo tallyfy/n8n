@@ -3,11 +3,164 @@ import type {
 	IExecuteFunctions,
 	IDataObject,
 	INodeExecutionData,
+	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
 	IHttpRequestOptions,
 	JsonObject,
 } from 'n8n-workflow';
+
+/**
+ * Weekdays as api-v2 numbers them in a schedule: 1 is Monday and 7 is Sunday, in both
+ * `day_of_week` (api-v2 production) and `days_of_week` (api-v2#8974). Kept in week order
+ * rather than alphabetical: n8n's sorting rule skips a list whose values are numbers.
+ */
+const WEEKDAY_OPTIONS: INodePropertyOptions[] = [
+	{ name: 'Monday', value: 1 },
+	{ name: 'Tuesday', value: 2 },
+	{ name: 'Wednesday', value: 3 },
+	{ name: 'Thursday', value: 4 },
+	{ name: 'Friday', value: 5 },
+	{ name: 'Saturday', value: 6 },
+	{ name: 'Sunday', value: 7 },
+];
+
+/** The api-v2 `job_key` behind each Job Type option (GET recurring-job-types). */
+const SCHEDULED_JOB_KEYS: Record<string, string> = {
+	createTask: 'create-task',
+	launchProcess: 'launch-process',
+};
+
+/** Scheduled Job operations that name one job, and so can meet the hidden-job 404. */
+const SCHEDULED_JOB_ID_OPERATIONS = ['get', 'getHistory', 'update', 'pause', 'resume', 'delete'];
+
+/**
+ * The schedule keys a job is saved with. api-v2 production stores one weekday in
+ * `day_of_week`; api-v2#8974 replaces it with the list `days_of_week`. Each API drops the key
+ * it does not know (RecurringSchedule::$fields with Arr::only), so a job read from either is
+ * sent back with whichever it carries.
+ */
+const SCHEDULE_KEYS = [
+	'recurring_type',
+	'interval',
+	'adjust_to_nearest_date',
+	'start_time',
+	'day_of_week',
+	'days_of_week',
+	'week_of_month',
+	'day_of_month',
+	'month_of_year',
+];
+
+/**
+ * The message for a 404 on a request that names one scheduled job. api-v2 answers a job the
+ * caller may not manage with the same 404 as a job that does not exist (tallyfy/api-v2#10896),
+ * so the node cannot tell them apart and says both.
+ */
+export function scheduledJobNotFoundMessage(jobId: string): string {
+	return `Scheduled job ${jobId} was not found. Either it does not exist in this organization, or the connected user may not manage it: a member sees only the jobs they created and the launch jobs for blueprints they may launch, and an admin sees every job.`;
+}
+
+/** The HTTP status an error carries, wherever the wrapper put it, or undefined. */
+function httpStatusOf(error: unknown): number | undefined {
+	if (typeof error !== 'object' || error === null) return undefined;
+	const err = error as Record<string, unknown>;
+	const response = err.response as Record<string, unknown> | undefined;
+	for (const candidate of [err.httpCode, err.statusCode, err.status, response?.status, response?.statusCode]) {
+		const status = Number(candidate);
+		if (Number.isInteger(status) && status >= 100 && status <= 599) return status;
+	}
+	return undefined;
+}
+
+/**
+ * A schedule day as the API takes it, YYYY-MM-DD, from an n8n date value. n8n hands a date
+ * parameter over as a string such as 2026-10-24T00:00:00, and an expression may give a Date
+ * or a Luxon DateTime. Only the calendar day written in the value is kept; a time or offset
+ * after it is dropped, because the API reads the day together with the schedule's start time.
+ * Returns undefined for anything that does not name a day.
+ */
+export function toScheduleDay(value: unknown): string | undefined {
+	let text: string | undefined;
+	if (typeof value === 'string') {
+		text = value.trim();
+	} else if (value instanceof Date) {
+		text = Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+	} else if (value && typeof (value as { toISODate?: unknown }).toISODate === 'function') {
+		const iso = (value as { toISODate: () => string | null }).toISODate();
+		text = iso ?? undefined;
+	}
+	const match = text ? /^(\d{4})-(\d{2})-(\d{2})/.exec(text) : null;
+	if (!match) return undefined;
+	const month = Number(match[2]);
+	const day = Number(match[3]);
+	if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+	return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+/**
+ * A start time as the API takes it, 24 hour HH:mm (`date_format:H:i`, which refuses an
+ * unpadded hour and refuses seconds). Accepts 9:00, 09:00 and 09:00:00. Returns undefined for
+ * anything else.
+ */
+export function toScheduleTime(value: unknown): string | undefined {
+	if (typeof value !== 'string') return undefined;
+	const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(value.trim());
+	if (!match) return undefined;
+	const hour = Number(match[1]);
+	const minute = Number(match[2]);
+	if (hour > 23 || minute > 59) return undefined;
+	return `${String(hour).padStart(2, '0')}:${match[2]}`;
+}
+
+/**
+ * Put weekdays on a schedule so either API reads them: the list in `days_of_week`
+ * (api-v2#8974) and the earliest day in `day_of_week` (api-v2 production, which stores one).
+ * Each API ignores the key it does not know.
+ */
+function setScheduleWeekdays(schedule: IDataObject, days: number[]): void {
+	const sorted = [...new Set(days)].sort((a, b) => a - b);
+	schedule.days_of_week = sorted;
+	schedule.day_of_week = sorted[0];
+}
+
+/**
+ * The whole job as an update must send it, built from the job as GET returns it.
+ *
+ * PUT recurring-jobs/{id} requires name, start_date, data, recurring_job_type_id and the
+ * schedule's recurring_type and start_time (UpdateRecurringJobRequest), so a change to one
+ * field still sends the rest. What the read returns is not always what the write accepts, so
+ * this adjusts it the way the next-gen client does:
+ * - the stored status goes back unchanged, which the API always accepts, and which a finished
+ *   (`completed`) job must send to be renamed at all;
+ * - a null value is left out, because a rule such as `integer` or `date` refuses null, and a
+ *   key left out keeps its stored value;
+ * - start_date and end_date go back as the day, YYYY-MM-DD;
+ * - start_time is stored with seconds and goes back as HH:mm;
+ * - data.created_by is the server's own stamp, which it ignores on update, so it is not sent.
+ */
+function scheduledJobUpdateBody(stored: IDataObject): IDataObject {
+	const body: IDataObject = {};
+	for (const key of ['name', 'description', 'max_occurrences', 'status', 'recurring_job_type_id']) {
+		if (stored[key] !== null && stored[key] !== undefined) body[key] = stored[key];
+	}
+	for (const key of ['start_date', 'end_date']) {
+		const day = toScheduleDay(stored[key]);
+		if (day) body[key] = day;
+	}
+	const data: IDataObject = { ...((stored.data as IDataObject) || {}) };
+	delete data.created_by;
+	body.data = data;
+	const storedSchedule = (stored.schedule as IDataObject) || {};
+	const schedule: IDataObject = {};
+	for (const key of SCHEDULE_KEYS) {
+		if (storedSchedule[key] !== null && storedSchedule[key] !== undefined) schedule[key] = storedSchedule[key];
+	}
+	const time = toScheduleTime(schedule.start_time);
+	if (time) schedule.start_time = time;
+	body.schedule = schedule;
+	return body;
+}
 
 /**
  * Tallyfy's allocated-seats billing (api-v2 #9206) refuses a seat-consuming
@@ -194,6 +347,11 @@ export class Tallyfy implements INodeType {
 						name: 'Process',
 						value: 'process',
 						description: 'Process instances (runs)',
+					},
+					{
+						name: 'Scheduled Job',
+						value: 'scheduledJob',
+						description: 'Once and recurring jobs that create a task or launch a process',
 					},
 					{
 						name: 'Search',
@@ -870,6 +1028,73 @@ export class Tallyfy implements INodeType {
 					},
 				],
 				default: 'findProcessId',
+			},
+
+			// ===== SCHEDULED JOB OPERATIONS =====
+			// api-v2 calls these recurring jobs (routes/api.php, `recurring-jobs`); the next-gen client
+			// shows them as Once and Recurring scheduled jobs. There is no pause or resume route: both
+			// are an update of `status`, so Pause and Resume read the job and send it back.
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+					},
+				},
+				options: [
+					{
+						name: 'Create',
+						value: 'create',
+						description: 'Schedule a task or a process launch, once or on a repeating schedule',
+						action: 'Create a scheduled job',
+					},
+					{
+						name: 'Delete',
+						value: 'delete',
+						description: 'Delete a scheduled job',
+						action: 'Delete a scheduled job',
+					},
+					{
+						name: 'Get',
+						value: 'get',
+						description: 'Get a scheduled job',
+						action: 'Get a scheduled job',
+					},
+					{
+						name: 'Get History',
+						value: 'getHistory',
+						description: 'List each time a scheduled job ran and whether it succeeded',
+						action: 'Get scheduled job history',
+					},
+					{
+						name: 'Get Many',
+						value: 'getAll',
+						description: 'Get many scheduled jobs',
+						action: 'Get many scheduled jobs',
+					},
+					{
+						name: 'Pause',
+						value: 'pause',
+						description: 'Pause a scheduled job so it stops running',
+						action: 'Pause a scheduled job',
+					},
+					{
+						name: 'Resume',
+						value: 'resume',
+						description: 'Resume a paused scheduled job',
+						action: 'Resume a scheduled job',
+					},
+					{
+						name: 'Update',
+						value: 'update',
+						description: 'Change a scheduled job',
+						action: 'Update a scheduled job',
+					},
+				],
+				default: 'getAll',
 			},
 
 			// ================================
@@ -2616,6 +2841,780 @@ export class Tallyfy implements INodeType {
 				},
 				description: 'The folder-object relation ID to remove',
 			},
+
+			// ===== SCHEDULED JOB FIELDS =====
+			{
+				displayName: 'Scheduled Job ID',
+				name: 'scheduledJobId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['get', 'getHistory', 'update', 'pause', 'resume', 'delete'],
+					},
+				},
+				description: 'The ID of the scheduled job, a whole number such as 42',
+			},
+			{
+				displayName: 'Only Jobs I Created',
+				name: 'createdByMe',
+				type: 'boolean',
+				default: false,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['getAll'],
+					},
+				},
+				description: 'Whether to list only the jobs the connected user created. A job saved before Tallyfy recorded who created it is never listed this way.',
+			},
+			{
+				displayName: 'Name',
+				name: 'jobName',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+					},
+				},
+				description: 'A name for the job, up to 50 characters',
+			},
+			{
+				displayName: 'Job Type',
+				name: 'jobType',
+				type: 'options',
+				options: [
+					{
+						name: 'Create Task',
+						value: 'createTask',
+						description: 'Create a standalone task each time the job runs',
+					},
+					{
+						name: 'Launch Process',
+						value: 'launchProcess',
+						description: 'Launch a process from a blueprint each time the job runs',
+					},
+				],
+				default: 'createTask',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+					},
+				},
+				description: 'What the job does when it runs',
+			},
+			{
+				displayName: 'Frequency',
+				name: 'frequency',
+				type: 'options',
+				options: [
+					{
+						name: 'Once',
+						value: 'once',
+						description: 'Run one time, on the start date at the start time',
+					},
+					{
+						name: 'Recurring',
+						value: 'recurring',
+						description: 'Run on a repeating schedule',
+					},
+				],
+				default: 'once',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+					},
+				},
+				description: 'Whether the job runs once or repeats',
+			},
+			{
+				displayName: 'Start Date',
+				name: 'startDate',
+				type: 'dateTime',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+					},
+				},
+				description: 'The day a Once job runs, or the first day a Recurring job may run. Only the day is used. Set the time of day in Start Time.',
+			},
+			{
+				displayName: 'Start Time',
+				name: 'startTime',
+				type: 'string',
+				default: '09:00',
+				required: true,
+				placeholder: '09:00',
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+					},
+				},
+				description: 'The time of day the job runs, as 24 hour HH:mm, such as 09:00 or 17:30. Tallyfy reads the start date and time in UTC, or in the organization time zone where your Tallyfy version supports one.',
+			},
+			{
+				displayName: 'Repeat',
+				name: 'recurringType',
+				type: 'options',
+				options: [
+					{ name: 'Daily', value: 'daily' },
+					{ name: 'Hourly', value: 'hourly' },
+					{ name: 'Monthly', value: 'monthly' },
+					{ name: 'Weekly', value: 'weekly' },
+					{ name: 'Yearly', value: 'yearly' },
+				],
+				default: 'daily',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						frequency: ['recurring'],
+					},
+				},
+				description: 'How often the job repeats. A Yearly job runs on the month and day of the start date.',
+			},
+			{
+				displayName: 'Every',
+				name: 'interval',
+				type: 'number',
+				typeOptions: {
+					minValue: 1,
+				},
+				default: 1,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						frequency: ['recurring'],
+					},
+				},
+				description: 'The gap between runs, counted in the unit chosen in Repeat. 2 with Weekly runs every other week.',
+			},
+			{
+				displayName: 'Days of Week',
+				name: 'daysOfWeek',
+				type: 'multiOptions',
+				options: WEEKDAY_OPTIONS,
+				default: [],
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						frequency: ['recurring'],
+						recurringType: ['weekly'],
+					},
+				},
+				description: 'The days a Weekly job runs on. A Tallyfy version that stores one weekday keeps the earliest of them, counting from Monday.',
+			},
+			{
+				displayName: 'Monthly Schedule',
+				name: 'monthlyOn',
+				type: 'options',
+				options: [
+					{
+						name: 'Day of Month',
+						value: 'dayOfMonth',
+						description: 'A numbered day, such as the 15th',
+					},
+					{
+						name: 'Weekday of Month',
+						value: 'weekdayOfMonth',
+						description: 'A weekday in a numbered week, such as the second Tuesday',
+					},
+				],
+				default: 'dayOfMonth',
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						frequency: ['recurring'],
+						recurringType: ['monthly'],
+					},
+				},
+				description: 'Which day of the month a Monthly job runs on',
+			},
+			{
+				displayName: 'Day of Month',
+				name: 'dayOfMonth',
+				type: 'number',
+				typeOptions: {
+					minValue: 1,
+					maxValue: 31,
+				},
+				default: 1,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						frequency: ['recurring'],
+						recurringType: ['monthly'],
+						monthlyOn: ['dayOfMonth'],
+					},
+				},
+				description: 'The day of the month the job runs on, from 1 to 31',
+			},
+			{
+				displayName: 'Week of Month',
+				name: 'weekOfMonth',
+				type: 'number',
+				typeOptions: {
+					minValue: 1,
+					maxValue: 5,
+				},
+				default: 1,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						frequency: ['recurring'],
+						recurringType: ['monthly'],
+						monthlyOn: ['weekdayOfMonth'],
+					},
+				},
+				description: 'Which week of the month, from 1 to 5. Some months have no fifth week.',
+			},
+			{
+				displayName: 'Weekday',
+				name: 'weekday',
+				type: 'options',
+				options: WEEKDAY_OPTIONS,
+				default: 1,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						frequency: ['recurring'],
+						recurringType: ['monthly'],
+						monthlyOn: ['weekdayOfMonth'],
+					},
+				},
+				description: 'The weekday in that week',
+			},
+			{
+				displayName: 'Adjust to Nearest Date',
+				name: 'adjustToNearestDate',
+				type: 'boolean',
+				default: false,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						frequency: ['recurring'],
+						recurringType: ['monthly'],
+					},
+				},
+				description: 'Whether a month that lacks the chosen day still gets a run: on its last day for a day such as the 31st, or in its fourth week when it has no fifth. Off skips that month.',
+			},
+
+			// Create Task job: what each run creates. The API checks this `data` with the same rules as
+			// POST /tasks, plus the deadline rule for how often the job runs (api-v2 ScheduledTaskData).
+			{
+				displayName: 'Task Title',
+				name: 'taskTitle',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['createTask'],
+					},
+				},
+				description: 'The title of each task the job creates, up to 600 characters',
+			},
+			{
+				displayName: 'Task Type',
+				name: 'taskType',
+				type: 'options',
+				options: [
+					{ name: 'Approval', value: 'approval' },
+					{ name: 'Email', value: 'email' },
+					{ name: 'Expiring', value: 'expiring' },
+					{ name: 'Expiring Email', value: 'expiring_email' },
+					{ name: 'Task', value: 'task' },
+				],
+				default: 'task',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['createTask'],
+					},
+				},
+				description: 'The type of each task the job creates',
+			},
+			{
+				displayName: 'Deadline',
+				name: 'taskDeadline',
+				type: 'dateTime',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['createTask'],
+						frequency: ['once'],
+					},
+				},
+				description: 'When the task is due. It must be after the moment the job runs. A relative value such as +2 days, set with an expression, is counted from that moment.',
+			},
+			{
+				displayName: 'Due After',
+				name: 'deadlineOffsetValue',
+				type: 'number',
+				typeOptions: {
+					minValue: 1,
+				},
+				default: 1,
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['createTask'],
+						frequency: ['recurring'],
+					},
+				},
+				description: 'How long after each task is created it is due, counted in Due After Unit. A recurring task job takes this in place of a fixed deadline.',
+			},
+			{
+				displayName: 'Due After Unit',
+				name: 'deadlineOffsetUnit',
+				type: 'options',
+				options: [
+					{ name: 'Days', value: 'days' },
+					{ name: 'Hours', value: 'hours' },
+					{ name: 'Minutes', value: 'minutes' },
+					{ name: 'Months', value: 'months' },
+					{ name: 'Weeks', value: 'weeks' },
+				],
+				default: 'days',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['createTask'],
+						frequency: ['recurring'],
+					},
+				},
+				description: 'The unit Due After counts in',
+			},
+			{
+				displayName: 'Task Options',
+				name: 'taskOptions',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['createTask'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Assign Groups',
+						name: 'assignGroups',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated list of group IDs to assign',
+					},
+					{
+						displayName: 'Assign Guests',
+						name: 'assignGuests',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated list of guest emails to assign',
+					},
+					{
+						displayName: 'Assign Users',
+						name: 'assignUsers',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated list of member IDs to assign',
+					},
+					{
+						displayName: 'Can Complete Only Assignees',
+						name: 'can_complete_only_assignees',
+						type: 'boolean',
+						default: false,
+						description: 'Whether only the assignees may complete the task',
+					},
+					{
+						displayName: 'Everyone Must Complete',
+						name: 'everyone_must_complete',
+						type: 'boolean',
+						default: false,
+						description: 'Whether all assignees must complete the task',
+					},
+					{
+						displayName: 'Extra Task Data (JSON)',
+						name: 'extraTaskData',
+						type: 'json',
+						default: '{}',
+						description: 'Any other keys POST /tasks takes, such as form_fields, added to the task data. The options above win where both name a key.',
+					},
+					{
+						displayName: 'Max Assignable',
+						name: 'max_assignable',
+						type: 'number',
+						default: 0,
+						description: 'Maximum number of assignees allowed',
+					},
+					{
+						displayName: 'Prevent Guest Comment',
+						name: 'prevent_guest_comment',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to prevent guests from commenting',
+					},
+					{
+						displayName: 'Process ID',
+						name: 'run_id',
+						type: 'string',
+						default: '',
+						description: 'Add each task to this process (run). Leave empty for a standalone task.',
+					},
+					{
+						displayName: 'Separate Task for Each Assignee',
+						name: 'separate_task_for_each_assignee',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to create one task per assignee',
+					},
+					{
+						displayName: 'Start Date',
+						name: 'started_at',
+						type: 'dateTime',
+						default: '',
+						description: 'When the task starts. Once jobs only: each task a Recurring job creates starts when it is created.',
+					},
+					{
+						displayName: 'Tags',
+						name: 'tags',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated list of tag IDs',
+					},
+					{
+						displayName: 'Top Secret',
+						name: 'top_secret',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to mark the task as top secret',
+					},
+					{
+						displayName: 'Webhook URL',
+						name: 'webhook',
+						type: 'string',
+						default: '',
+						description: 'Webhook to call on task events',
+					},
+				],
+			},
+
+			// Launch Process job: what each run launches. The API hands this `data` to the same
+			// RunService::startRun that POST /runs uses, so `prerun` is keyed by kickoff field ID.
+			{
+				displayName: 'Blueprint ID',
+				name: 'blueprintId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['launchProcess'],
+					},
+				},
+				description: 'The ID of the blueprint (template) each run launches',
+			},
+			{
+				displayName: 'Process Name',
+				name: 'processName',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['launchProcess'],
+					},
+				},
+				description: 'Name for each process the job launches, up to 300 characters',
+			},
+			{
+				displayName: 'Kickoff Field Values',
+				name: 'kickoffValues',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				default: {},
+				placeholder: 'Add Kickoff Value',
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['launchProcess'],
+					},
+				},
+				description:
+					'Values for the blueprint kickoff (prerun) form fields, resolved and encoded when the job is created, exactly as Process: Launch does. An entry matching no field fails the execution.',
+				options: [
+					{
+						displayName: 'Value',
+						name: 'values',
+						values: [
+							{
+								displayName: 'Field',
+								name: 'field',
+								type: 'string',
+								default: '',
+								description: 'The kickoff field to set, by its ID, alias or exact label',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description:
+									'For dropdown or radio, the option text (exact match). For multiselect, comma-separated option texts. For text, date or number, the value as-is.',
+							},
+						],
+					},
+				],
+			},
+			{
+				displayName: 'Process Options',
+				name: 'processOptions',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+						jobType: ['launchProcess'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Extra Process Data (JSON)',
+						name: 'extraProcessData',
+						type: 'json',
+						default: '{}',
+						description: 'Any other keys a launch takes, such as tasks or users, added to the job data. Blueprint ID, Process Name and Kickoff Field Values win where both name a key.',
+					},
+				],
+			},
+			{
+				displayName: 'Additional Fields',
+				name: 'scheduledJobFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['create'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Description',
+						name: 'description',
+						type: 'string',
+						default: '',
+						description: 'A description of the job, up to 500 characters',
+					},
+					{
+						displayName: 'End Date',
+						name: 'endDate',
+						type: 'dateTime',
+						default: '',
+						description: 'Recurring jobs only: the last day the job may run',
+					},
+					{
+						displayName: 'Max Runs',
+						name: 'maxRuns',
+						type: 'number',
+						typeOptions: {
+							minValue: 2,
+						},
+						default: 2,
+						description: 'Recurring jobs only: stop after the job has run this many times',
+					},
+					{
+						displayName: 'Start Paused',
+						name: 'startPaused',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to save the job paused, so it does not run until it is resumed',
+					},
+				],
+			},
+			{
+				displayName: 'Update Fields',
+				name: 'scheduledJobUpdateFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['scheduledJob'],
+						operation: ['update'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Adjust to Nearest Date',
+						name: 'adjustToNearestDate',
+						type: 'boolean',
+						default: false,
+						description: 'Whether a month that lacks the chosen day still gets a run (Monthly jobs)',
+					},
+					{
+						displayName: 'Data (JSON)',
+						name: 'jobData',
+						type: 'json',
+						default: '{}',
+						description: 'Keys to change in what the job does, laid over its stored data. A task job takes keys such as title, deadline (Once) or deadline_offset (Recurring). A launch job takes keys such as checklist_id, name or prerun.',
+					},
+					{
+						displayName: 'Day of Month',
+						name: 'dayOfMonth',
+						type: 'number',
+						typeOptions: {
+							minValue: 1,
+							maxValue: 31,
+						},
+						default: 1,
+						description: 'The day of the month a Monthly job runs on',
+					},
+					{
+						displayName: 'Days of Week',
+						name: 'daysOfWeek',
+						type: 'multiOptions',
+						options: WEEKDAY_OPTIONS,
+						default: [],
+						description: 'The days a Weekly job runs on, or the one weekday of a Monthly job that runs on a weekday of the month',
+					},
+					{
+						displayName: 'Description',
+						name: 'description',
+						type: 'string',
+						default: '',
+						description: 'A description of the job, up to 500 characters',
+					},
+					{
+						displayName: 'End Date',
+						name: 'endDate',
+						type: 'dateTime',
+						default: '',
+						description: 'The last day the job may run',
+					},
+					{
+						displayName: 'Every',
+						name: 'interval',
+						type: 'number',
+						typeOptions: {
+							minValue: 1,
+						},
+						default: 1,
+						description: 'The gap between runs, counted in the unit of Repeat',
+					},
+					{
+						displayName: 'Max Runs',
+						name: 'maxRuns',
+						type: 'number',
+						typeOptions: {
+							minValue: 1,
+						},
+						default: 2,
+						description: 'How many times the job runs in all. 1 makes it a one-time job.',
+					},
+					{
+						displayName: 'Month of Year',
+						name: 'monthOfYear',
+						type: 'number',
+						typeOptions: {
+							minValue: 1,
+							maxValue: 12,
+						},
+						default: 1,
+						description: 'The month a Yearly job runs in, from 1 to 12',
+					},
+					{
+						displayName: 'Name',
+						name: 'name',
+						type: 'string',
+						default: '',
+						description: 'A new name for the job, up to 50 characters',
+					},
+					{
+						displayName: 'Repeat',
+						name: 'recurringType',
+						type: 'options',
+						options: [
+							{ name: 'Daily', value: 'daily' },
+							{ name: 'Hourly', value: 'hourly' },
+							{ name: 'Monthly', value: 'monthly' },
+							{ name: 'Weekly', value: 'weekly' },
+							{ name: 'Yearly', value: 'yearly' },
+						],
+						default: 'daily',
+						description: 'How often the job repeats',
+					},
+					{
+						displayName: 'Start Date',
+						name: 'startDate',
+						type: 'dateTime',
+						default: '',
+						description: 'The day a Once job runs, or the first day a Recurring job may run. Only the day is used.',
+					},
+					{
+						displayName: 'Start Time',
+						name: 'startTime',
+						type: 'string',
+						default: '09:00',
+						placeholder: '09:00',
+						description: 'The time of day the job runs, as 24 hour HH:mm',
+					},
+					{
+						displayName: 'Week of Month',
+						name: 'weekOfMonth',
+						type: 'number',
+						typeOptions: {
+							minValue: 1,
+							maxValue: 5,
+						},
+						default: 1,
+						description: 'Which week of the month a Monthly job runs in, from 1 to 5',
+					},
+				],
+			},
 			// ===== GENERAL LIST OPERATION FIELDS =====
 			{
 				displayName: 'Return All',
@@ -2655,6 +3654,10 @@ export class Tallyfy implements INodeType {
 				displayOptions: {
 					show: {
 						operation: ['getAll', 'getMyTasks', 'getUserTasks', 'getGuestTasks'],
+					},
+					// GET recurring-jobs reads none of these; its one filter is Only Jobs I Created.
+					hide: {
+						resource: ['scheduledJob'],
 					},
 				},
 				options: [
@@ -2941,6 +3944,45 @@ export class Tallyfy implements INodeType {
 			)) as IDataObject;
 		};
 
+		// Kick-off (prerun) values for a launch: resolve each entry against the template's kickoff
+		// fields and encode per type into a `prerun` object keyed by the field id (the key the API
+		// resolves - alias/timeline_id do NOT resolve and launch would silently 201 with no values
+		// stored). Matches middleware start_process.js. Process: Launch sends it straight away; a
+		// Launch Process scheduled job stores it, and api-v2 hands it to the same startRun later.
+		const buildPrerun = async (
+			checklistId: string,
+			kickoffEntries: IDataObject[],
+			itemIndex: number,
+		): Promise<IDataObject> => {
+			const tmpl = await doRequest(
+				'GET',
+				`/organizations/${organizationId}/checklists/${checklistId}`,
+				undefined,
+				{ with: 'prerun' },
+			);
+			const tmplData = ((tmpl.data as IDataObject) || tmpl);
+			const kickoffFields = ((tmplData.prerun as IDataObject[]) || []);
+			const prerun: IDataObject = {};
+			for (const entry of kickoffEntries) {
+				const key = String(entry.field ?? '').trim();
+				const field = kickoffFields.find(
+					f => f.id === key || f.alias === key || f.label === key,
+				);
+				if (!field) {
+					throw new NodeOperationError(
+						this.getNode(),
+						`Kickoff field "${key}" not found on template ${checklistId}. Use the "Get kickoff fields" operation to list valid fields.`,
+						{ itemIndex },
+					);
+				}
+				prerun[field.id as string] = encodeKickoffValue(field, entry.value, itemIndex) as
+					| IDataObject
+					| IDataObject[]
+					| string;
+			}
+			return prerun;
+		};
+
 		for (let i = 0; i < items.length; i++) {
 			try {
 				let responseData: IDataObject | IDataObject[] = {};
@@ -3035,40 +4077,11 @@ export class Tallyfy implements INodeType {
 						body.checklist_id = this.getNodeParameter('blueprintId', i) as string;
 						body.name = this.getNodeParameter('processName', i) as string;
 
-						// Kick-off (prerun) values: resolve each entry against the template's kickoff
-						// fields and encode per type into a `prerun` object keyed by the field id (the
-						// key the API resolves - alias/timeline_id do NOT resolve and launch would
-						// silently 201 with no values stored). Matches middleware start_process.js.
+						// Kick-off (prerun) values, resolved and encoded by buildPrerun above.
 						const kickoffValues = this.getNodeParameter('kickoffValues', i, {}) as IDataObject;
 						const kickoffEntries = (kickoffValues.values as IDataObject[]) || [];
 						if (kickoffEntries.length) {
-							const tmpl = await doRequest(
-								'GET',
-								`/organizations/${organizationId}/checklists/${body.checklist_id}`,
-								undefined,
-								{ with: 'prerun' },
-							);
-							const tmplData = ((tmpl.data as IDataObject) || tmpl);
-							const kickoffFields = ((tmplData.prerun as IDataObject[]) || []);
-							const prerun: IDataObject = {};
-							for (const entry of kickoffEntries) {
-								const key = String(entry.field ?? '').trim();
-								const field = kickoffFields.find(
-									f => f.id === key || f.alias === key || f.label === key,
-								);
-								if (!field) {
-									throw new NodeOperationError(
-										this.getNode(),
-										`Kickoff field "${key}" not found on template ${body.checklist_id}. Use the "Get kickoff fields" operation to list valid fields.`,
-										{ itemIndex: i },
-									);
-								}
-								prerun[field.id as string] = encodeKickoffValue(field, entry.value, i) as
-									| IDataObject
-									| IDataObject[]
-									| string;
-							}
-							body.prerun = prerun;
+							body.prerun = await buildPrerun(body.checklist_id as string, kickoffEntries, i);
 						}
 
 						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
@@ -4047,6 +5060,264 @@ export class Tallyfy implements INodeType {
 					}
 				}
 
+				// Scheduled Job operations (tallyfy/n8n#53). api-v2 calls these recurring jobs. Every
+				// operation runs its own requests and outputs the job, or each job or history entry,
+				// without the API's `data` envelope.
+				if (resource === 'scheduledJob') {
+					skipGenericRequest = true;
+					const jobsPath = `/organizations/${organizationId}/recurring-jobs`;
+					// Annotated on the variable, not the arrow, so TypeScript narrows after a call.
+					const fail: (message: string) => never = (message) => {
+						throw new NodeOperationError(this.getNode(), message, { itemIndex: i });
+					};
+					const unwrap = (resp: IDataObject): IDataObject => {
+						const inner = resp?.data;
+						return inner && typeof inner === 'object' && !Array.isArray(inner) ? (inner as IDataObject) : resp;
+					};
+					const listOf = (resp: IDataObject): IDataObject[] =>
+						Array.isArray(resp?.data) ? (resp.data as IDataObject[]) : [];
+					const dayParam = (value: unknown, label: string): string =>
+						toScheduleDay(value) ?? fail(`${label} must be a date such as 2026-11-02. Got "${String(value ?? '')}".`);
+					const timeParam = (value: unknown, label: string): string =>
+						toScheduleTime(value) ??
+						fail(`${label} must be a 24 hour time such as 09:00 or 17:30. Got "${String(value ?? '')}".`);
+					const weekdaysParam = (value: unknown): number[] => {
+						const days = (Array.isArray(value) ? value : [value]).map(Number);
+						if (!days.length || days.some(day => !Number.isInteger(day) || day < 1 || day > 7)) {
+							fail('Choose at least one day in Days of Week, Monday to Sunday.');
+						}
+						return days;
+					};
+
+					let jobId = '';
+					if (SCHEDULED_JOB_ID_OPERATIONS.includes(operation as string)) {
+						jobId = String(this.getNodeParameter('scheduledJobId', i) ?? '').trim();
+						if (!/^\d+$/.test(jobId)) {
+							fail(`Scheduled Job ID must be a whole number, such as 42. Got "${jobId}".`);
+						}
+					}
+					const jobPath = `${jobsPath}/${jobId}`;
+
+					try {
+						if (operation === 'getAll') {
+							// The API pages with per_page (default 10, at most 100) and page, and reports
+							// meta.pagination.current_page and total_pages. It never sends has_more_pages.
+							const query: IDataObject = {};
+							if (this.getNodeParameter('createdByMe', i, false) as boolean) query.created_by = 'me';
+							if (this.getNodeParameter('returnAll', i) as boolean) {
+								const jobs: IDataObject[] = [];
+								for (let page = 1; ; page++) {
+									const resp = await doRequest('GET', jobsPath, undefined, { ...query, per_page: 100, page });
+									const rows = listOf(resp);
+									jobs.push(...rows);
+									const pagination = ((resp.meta as IDataObject)?.pagination as IDataObject) || {};
+									const totalPages = Number(pagination.total_pages);
+									if (!rows.length || !Number.isFinite(totalPages) || page >= totalPages) break;
+								}
+								responseData = jobs;
+							} else {
+								const limit = this.getNodeParameter('limit', i) as number;
+								const resp = await doRequest('GET', jobsPath, undefined, { ...query, per_page: limit, page: 1 });
+								responseData = listOf(resp).slice(0, limit);
+							}
+						}
+
+						if (operation === 'get') {
+							responseData = unwrap(await doRequest('GET', jobPath));
+						}
+
+						if (operation === 'getHistory') {
+							responseData = listOf(await doRequest('GET', `${jobPath}/history`));
+						}
+
+						if (operation === 'delete') {
+							responseData = unwrap(await doRequest('DELETE', jobPath));
+						}
+
+						if (operation === 'create') {
+							const jobKey = SCHEDULED_JOB_KEYS[this.getNodeParameter('jobType', i) as string];
+							if (!jobKey) fail('Job Type must be Create Task or Launch Process.');
+							const frequency = this.getNodeParameter('frequency', i) as string;
+							const extra = this.getNodeParameter('scheduledJobFields', i, {}) as IDataObject;
+							const startDate = dayParam(this.getNodeParameter('startDate', i), 'Start Date');
+							const schedule: IDataObject = {
+								recurring_type: 'daily',
+								interval: 1,
+								start_time: timeParam(this.getNodeParameter('startTime', i), 'Start Time'),
+							};
+							const body: IDataObject = {
+								name: this.getNodeParameter('jobName', i) as string,
+								start_date: startDate,
+							};
+
+							if (frequency === 'once') {
+								// The next-gen client's Once job: daily, interval 1, one run. api-v2 reads
+								// max_occurrences 1 as a one-time job, whose moment must be in the future.
+								if (extra.endDate || extra.maxRuns) {
+									fail('End Date and Max Runs apply to Recurring jobs only. A Once job runs one time.');
+								}
+								body.max_occurrences = 1;
+							} else {
+								const recurringType = this.getNodeParameter('recurringType', i) as string;
+								schedule.recurring_type = recurringType;
+								schedule.interval = Number(this.getNodeParameter('interval', i, 1));
+								if (recurringType === 'weekly') {
+									setScheduleWeekdays(schedule, weekdaysParam(this.getNodeParameter('daysOfWeek', i)));
+								}
+								if (recurringType === 'monthly') {
+									if ((this.getNodeParameter('monthlyOn', i, 'dayOfMonth') as string) === 'weekdayOfMonth') {
+										schedule.week_of_month = this.getNodeParameter('weekOfMonth', i) as number;
+										setScheduleWeekdays(schedule, weekdaysParam(this.getNodeParameter('weekday', i)));
+									} else {
+										schedule.day_of_month = this.getNodeParameter('dayOfMonth', i) as number;
+									}
+									schedule.adjust_to_nearest_date = this.getNodeParameter('adjustToNearestDate', i, false) as boolean;
+								}
+								if (recurringType === 'yearly') {
+									// Named the way api-v2 production fills them in when left out, so a
+									// version that requires them reads the same job.
+									schedule.month_of_year = Number(startDate.slice(5, 7));
+									schedule.day_of_month = Number(startDate.slice(8, 10));
+								}
+								if (extra.maxRuns !== undefined && extra.maxRuns !== null && extra.maxRuns !== '') {
+									const maxRuns = Number(extra.maxRuns);
+									if (!Number.isInteger(maxRuns) || maxRuns < 2) {
+										fail('Max Runs must be 2 or more for a Recurring job. Choose Once for a job that runs one time.');
+									}
+									body.max_occurrences = maxRuns;
+								}
+								if (extra.endDate) body.end_date = dayParam(extra.endDate, 'End Date');
+							}
+							if (extra.description) body.description = extra.description;
+							if (extra.startPaused) body.status = 'paused';
+
+							// The type's id comes from a sequence and differs between environments, so
+							// it is looked up by job_key each time (GET recurring-job-types).
+							const types = listOf(
+								await doRequest('GET', `/organizations/${organizationId}/recurring-job-types`),
+							);
+							const type = types.find(t => t.job_key === jobKey);
+							if (!type) {
+								const offered = types.map(t => String(t.job_key)).join(', ') || 'none';
+								fail(`This Tallyfy organization does not offer the "${jobKey}" scheduled job type. It offers: ${offered}.`);
+							}
+							body.recurring_job_type_id = Number(type.id);
+
+							if (jobKey === 'create-task') {
+								const options = this.getNodeParameter('taskOptions', i, {}) as IDataObject;
+								// Task Options win over Extra Task Data where both name a key.
+								const data: IDataObject = { ...asObject(options.extraTaskData) };
+								data.title = this.getNodeParameter('taskTitle', i) as string;
+								data.task_type = this.getNodeParameter('taskType', i) as string;
+								// POST /tasks requires `owners`, and the three empty lists satisfy it.
+								data.owners = {
+									users: options.assignUsers ? splitList(String(options.assignUsers)) : [],
+									guests: options.assignGuests ? splitList(String(options.assignGuests)) : [],
+									groups: options.assignGroups ? splitList(String(options.assignGroups)) : [],
+								};
+								if (frequency === 'once') {
+									data.deadline = this.getNodeParameter('taskDeadline', i) as string;
+								} else {
+									// A repeating task job takes deadline_offset and no fixed deadline
+									// (api-v2#10872). The API advertises it in the type's rules, which is
+									// how the next-gen client decides to offer repeating task jobs.
+									const rules = (type.validations as IDataObject) || {};
+									if (!('deadline_offset' in rules)) {
+										fail('This Tallyfy version cannot run a task job on a repeating schedule: its create-task rules have no deadline_offset. Choose Once, or Launch Process.');
+									}
+									data.deadline_offset = {
+										value: Number(this.getNodeParameter('deadlineOffsetValue', i)),
+										unit: this.getNodeParameter('deadlineOffsetUnit', i) as string,
+									};
+								}
+								for (const key of [
+									'can_complete_only_assignees',
+									'everyone_must_complete',
+									'prevent_guest_comment',
+									'separate_task_for_each_assignee',
+									'top_secret',
+								]) {
+									if (options[key] !== undefined) data[key] = options[key];
+								}
+								if (Number(options.max_assignable) > 0) data.max_assignable = Number(options.max_assignable);
+								if (options.run_id) data.run_id = String(options.run_id).trim();
+								if (options.started_at) data.started_at = options.started_at;
+								if (options.tags) data.tags = splitList(String(options.tags));
+								if (options.webhook) data.webhook = options.webhook;
+								body.data = data;
+							} else {
+								const options = this.getNodeParameter('processOptions', i, {}) as IDataObject;
+								const data: IDataObject = { ...asObject(options.extraProcessData) };
+								data.checklist_id = String(this.getNodeParameter('blueprintId', i) ?? '').trim();
+								const processName = this.getNodeParameter('processName', i, '') as string;
+								if (processName) data.name = processName;
+								const kickoffValues = this.getNodeParameter('kickoffValues', i, {}) as IDataObject;
+								const kickoffEntries = (kickoffValues.values as IDataObject[]) || [];
+								if (kickoffEntries.length) {
+									data.prerun = await buildPrerun(data.checklist_id as string, kickoffEntries, i);
+								}
+								body.data = data;
+							}
+
+							body.schedule = schedule;
+							responseData = unwrap(await doRequest('POST', jobsPath, body));
+						}
+
+						if (operation === 'update' || operation === 'pause' || operation === 'resume') {
+							// The API has no partial update: read the job, change it, send it all back.
+							const body = scheduledJobUpdateBody(unwrap(await doRequest('GET', jobPath)));
+							const schedule = body.schedule as IDataObject;
+
+							if (operation === 'pause') body.status = 'paused';
+							if (operation === 'resume') body.status = 'active';
+
+							if (operation === 'update') {
+								const changes = this.getNodeParameter('scheduledJobUpdateFields', i, {}) as IDataObject;
+								if (changes.name) body.name = changes.name;
+								if (changes.description) body.description = changes.description;
+								if (changes.startDate) body.start_date = dayParam(changes.startDate, 'Start Date');
+								if (changes.endDate) body.end_date = dayParam(changes.endDate, 'End Date');
+								if (changes.startTime) schedule.start_time = timeParam(changes.startTime, 'Start Time');
+								if (changes.maxRuns !== undefined) body.max_occurrences = Number(changes.maxRuns);
+								if (changes.recurringType) schedule.recurring_type = changes.recurringType;
+								if (changes.interval !== undefined) schedule.interval = Number(changes.interval);
+								if (changes.daysOfWeek !== undefined) setScheduleWeekdays(schedule, weekdaysParam(changes.daysOfWeek));
+								if (changes.dayOfMonth !== undefined) schedule.day_of_month = Number(changes.dayOfMonth);
+								if (changes.weekOfMonth !== undefined) schedule.week_of_month = Number(changes.weekOfMonth);
+								if (changes.monthOfYear !== undefined) schedule.month_of_year = Number(changes.monthOfYear);
+								if (changes.adjustToNearestDate !== undefined) {
+									schedule.adjust_to_nearest_date = changes.adjustToNearestDate;
+								}
+								if (changes.jobData !== undefined) {
+									body.data = { ...(body.data as IDataObject), ...asObject(changes.jobData) };
+								}
+							}
+
+							responseData = unwrap(await doRequest('PUT', jobPath, body));
+						}
+					} catch (error) {
+						// api-v2 answers a job the caller may not manage exactly as one that does not
+						// exist (tallyfy/api-v2#10896), so a 404 on a named job says both. DELETE is the
+						// one exception on api-v2 production, where it answers 403 for that job
+						// (RecurringJobPolicy::authorizeManage, its only refusal); api-v2#11112 makes it
+						// 404 too. So both read the same here, whichever version serves the credential.
+						const status = httpStatusOf(error);
+						if (jobId && (status === 404 || (operation === 'delete' && status === 403))) {
+							throw new NodeOperationError(this.getNode(), error as Error, {
+								message: scheduledJobNotFoundMessage(jobId),
+								itemIndex: i,
+								level: 'warning',
+							});
+						}
+						// Anything else goes on as it came: both constructors hand back an error of their
+						// own class unchanged, and wrap any other error for this item.
+						if (error instanceof NodeApiError) {
+							throw new NodeApiError(this.getNode(), error as unknown as JsonObject, { itemIndex: i });
+						}
+						throw new NodeOperationError(this.getNode(), error as Error, { itemIndex: i });
+					}
+				}
+
 				// Make the API request (skipped when a read-modify-write branch already ran)
 				if (!skipGenericRequest) {
 				const options: IHttpRequestOptions = {
@@ -4060,28 +5331,45 @@ export class Tallyfy implements INodeType {
 					body: Object.keys(body).length ? body : undefined,
 				};
 
+				// Every Tallyfy list takes its page size from per_page and ignores limit (measured on
+				// staging, #55), so a Limit travels as per_page as well. limit stays in the query as
+				// it always was.
+				if (qs.limit !== undefined && qs.per_page === undefined) {
+					qs.per_page = qs.limit;
+				}
+
 				// returnAll walks every page in the loop below, so it must NOT also
 				// fire the base request here (that previously double-fetched page 1). See #5.
-				if (operation === 'getAll' && this.getNodeParameter('returnAll', i)) {
+				// The three task lists offer Return All too, and used to return one page for it (#55).
+				if (
+					['getAll', 'getMyTasks', 'getUserTasks', 'getGuestTasks'].includes(operation as string) &&
+					this.getNodeParameter('returnAll', i)
+				) {
 					const allItems: IDataObject[] = [];
 					let hasMore = true;
 					let page = 1;
 
 					while (hasMore) {
-						options.qs = { ...qs, page };
+						// 100 a page, which every list accepted on staging (#55), so a long list
+						// takes a tenth of the requests its default page of 10 would.
+						options.qs = { per_page: 100, ...qs, page };
 						const pageData = await this.helpers.httpRequestWithAuthentication.call(
 							this,
 							'tallyfyApi',
 							options,
 						);
 
-						if (Array.isArray(pageData.data)) {
-							allItems.push(...pageData.data);
-						}
+						const rows = Array.isArray(pageData.data) ? (pageData.data as IDataObject[]) : [];
+						allItems.push(...rows);
 
-						if (!pageData.meta?.pagination?.has_more_pages) {
-							hasMore = false;
-						}
+						// The API reports current_page and total_pages and has never sent
+						// has_more_pages, which this loop used to wait for, so it stopped after page
+						// one (#55). An empty page ends it either way.
+						const pagination = (pageData.meta?.pagination ?? {}) as IDataObject;
+						const totalPages = Number(pagination.total_pages);
+						hasMore =
+							rows.length > 0 &&
+							(pagination.has_more_pages === true || (Number.isFinite(totalPages) && page < totalPages));
 						page++;
 					}
 					responseData = allItems;
