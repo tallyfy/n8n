@@ -5,15 +5,21 @@
 		"noUnusedParameters": false,
 		"types": ["jest", "node"]
 	},
-	// `exclude` is NOT inherited harmlessly here, it has to be overridden. The base tsconfig
-	// excludes "test", "**/*.spec.ts" and "**/*.test.ts", and exclude beats include, so without
-	// this override the "test/**/*.ts" entry below was dead: `tsc -p tsconfig.jest.json` checked
-	// exactly 3 files (the two nodes and the credential) and reported success while never looking
+	// `exclude` is overridden here on purpose. Until the @n8n/node-cli re-scaffold (#4, PR #51) the
+	// base tsconfig excluded "test", "**/*.spec.ts" and "**/*.test.ts", and exclude beats include,
+	// so without this override the "test/**/*.ts" entry below was dead:
+	// `tsc -p tsconfig.jest.json` checked exactly 3 files (the two nodes and the credential) and reported success while never looking
 	// at a single test file. Measured 2026-08-29 with `--listFilesOnly`; the same command now
 	// lists 11, and .github/workflows/ci.yml asserts that count so this cannot silently regress.
 	// (12 later the same day, once test/scripts/check-icons.test.ts was added by #43. The 11 is
 	// left as written: ci.yml compares the covered count against the count on disk rather than
 	// against a literal, so it does not need editing when a test file is added.)
+	//
+	// The base tsconfig has no `exclude` at all since PR #51, so today this override changes
+	// nothing about which files are checked. Measured 2026-10-23 with `--listFilesOnly`: the
+	// configuration with this override and the same configuration without it each list all 11
+	// test files on disk, and putting the old base exclude back with no override lists 0. It
+	// stays so that an `exclude` added to the base later cannot drop the test tree again.
 	//
 	// This does not change what `npm test` compiles. ts-jest picks its file set from jest.config.js
 	// roots and testMatch, never from include/exclude here, and only reads the compilerOptions.

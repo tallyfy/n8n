@@ -49,13 +49,25 @@ its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
 
 ## [Unreleased]
 
-Not published. `package.json` still declares `1.1.3`, which is already tagged and on npm, so
-everything here is ahead of the last release. `git log v1.1.3..origin/main` is the check that
-says what that is; a `package.json` versus `npm view` comparison reads as "they agree, nothing
-to publish" and is wrong for exactly this state.
+## [1.2.0] - 2026-10-23
 
-The next release needs its own new heading (**1.1.4** - `1.1.3` cannot be reused, the tag
-exists) and its own tag. Nobody has decided to cut it yet.
+**This version needs n8n 1.85.0 or later.** Both nodes now name their inputs and outputs with
+`NodeConnectionTypes.Main`, as n8n's community node rules require, and they read that value at
+runtime from the `n8n-workflow` package of the n8n they run in. `n8n-workflow` first exports
+`NodeConnectionTypes` in its own 1.83.0; 1.82.0 has only the older `NodeConnectionType` enum.
+n8n and `n8n-workflow` are numbered separately, and n8n 1.85.0 (released 2025-03-24) is the first
+n8n that ships `n8n-workflow` 1.83.0: n8n 1.83.x ships 1.81.x and n8n 1.84.x ships 1.82.0. On an
+older n8n the nodes fail to load. 1.1.3 does not use `NodeConnectionTypes`. The peer dependency
+on `n8n-workflow` is now `*` (see Changed), so npm does not warn about this; this note and the
+README are where it is stated.
+
+Measured 2026-10-23 from the registry: the exports of every `n8n-workflow` tarball from 1.79.0 to
+1.84.0, and the `n8n-workflow` dependency of all 1,216 published n8n versions that name one. With
+the cut at n8n 1.85.0 every version falls on the right side of it; the same check with the cut
+at 1.83.0 or at 1.86.0 finds exceptions, so it can fail.
+
+Released as 1.2.0 by owner decision on 2026-10-22. Until then this section was `## [Unreleased]`
+and said the next release would be 1.1.4.
 
 ### Added
 - **The Tallyfy node can now be used as a tool by an n8n AI Agent.** It declares
