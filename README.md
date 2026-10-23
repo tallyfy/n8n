@@ -210,11 +210,12 @@ The server acts as the user who owns the token, with that user's permissions in 
 ## Compatibility
 
 - Runs as an n8n community node (nodes API version 1). Install it from **Settings > Community Nodes** or with `npm install n8n-nodes-tallyfy`.
+- Requires **n8n 1.85.0 or newer** from version 1.2.0 on. The nodes use `NodeConnectionTypes` from the `n8n-workflow` package inside n8n, which n8n first ships in 1.85.0 (March 2025). On an older n8n they fail to load, so update n8n first. Version 1.1.3 does not have this requirement.
 - Requires Node.js 20.15 or newer.
 - Built with [`@n8n/node-cli`](https://www.npmjs.com/package/@n8n/node-cli), n8n's own tooling for community nodes, and linted with n8n's community node rules in strict mode. Tested against `n8n-workflow` 2.43.
 - No runtime dependencies.
 
-**Version note**: this package is on the 1.1.x line. For what each release contains, see [CHANGELOG.md](CHANGELOG.md). For the version you would install right now, ask npm rather than this page:
+**Version note**: this package is on the 1.2.x line. For what each release contains, see [CHANGELOG.md](CHANGELOG.md). For the version you would install right now, ask npm rather than this page:
 
 ```bash
 npm view n8n-nodes-tallyfy version
