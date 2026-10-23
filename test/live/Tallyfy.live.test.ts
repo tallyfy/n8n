@@ -636,40 +636,54 @@ d('Tallyfy live API', () => {
 			if (bpId) await rawApi('DELETE', `/organizations/${TEST_ORG}/checklists/${bpId}`).catch(() => undefined);
 		});
 
-		// TRIPWIRE: api-v2 UpdateFormFieldValueRequest::postValidate() runs
-		// `CaptureValue::find($id)->capture` with no null-guard, and FormFieldService::updateValue()
-		// has no create-if-missing, so a run-level field with no stored CaptureValue yet returns
-		// HTTP 500 "Attempt to read property `capture` on null". This asserts that CURRENT behavior.
+		// TRIPWIRE, re-pointed 2026-10-23 (#59). api-v2 looks the value up by its stored
+		// CaptureValue id and has no create-if-missing, so a run-level field that has never been
+		// filled cannot be set through PUT /form-field/value.
 		//
-		// The server-side gap is tallyfy/api-v2 issue #5010, PR #8955. Both were still open on
-		// 2026-08-09. There is no node work outstanding here: the request shape is correct and is
-		// asserted per field type in the mocked suite.
+		// Until 2026-09-17 that was HTTP 500 "Attempt to read property `capture` on null", and this
+		// test asserted the word "capture". That was event 1 of the two it was written to notice:
+		// the 500 became a 422 and the message changed. Production answers "No form field value
+		// matches this id." (api-v2 commit 77f046a70). Staging runs api-v2 master, which carries
+		// api-v2 PR #8955 and answers "The form field could not be found." Measured on staging on
+		// 2026-10-23: 422 with that message for an id matching no stored value, and 401 for a
+		// made-up token on the same call. The operation STILL DOES NOT WORK; the server-side gap is
+		// tallyfy/api-v2 issue #5010. There is no node work outstanding: the request shape is
+		// correct and is asserted per field type in the mocked suite.
 		//
-		// THIS TEST GOING RED IS THE SIGNAL, NOT A REGRESSION. It goes red on two different events
-		// and they need different responses, so read which one happened before touching it:
+		// THIS TEST GOING RED IS THE SIGNAL, NOT A REGRESSION. Read which of these happened first:
 		//
-		//   1. api-v2 PR #8955 lands. It converts the 500 into a 422 with proper validation, and
-		//      the message stops containing "capture", so the assertion below stops matching. The
-		//      operation STILL DOES NOT WORK. Re-point the assertion at the new 422 and keep the
-		//      test red-on-success. Do NOT relax it to "rejects with anything", which would make
-		//      the tripwire unable to notice event 2.
-		//   2. A real create-or-update fix lands, mirroring the guest storeOrUpdateFields path.
-		//      Then this call SUCCEEDS. Flip the test to a stored-value round-trip: read back
-		//      GET /runs/{runId}/form-fields and assert the value persisted.
+		//   - The call SUCCEEDS. A real create-or-update fix landed, mirroring the guest
+		//     storeOrUpdateFields path. Flip the test to a stored-value round-trip: read back
+		//     GET /runs/{runId}/form-fields and assert the value persisted. That closes #9.
+		//   - A 500 comes back. The old crash returned, which is an api-v2 regression to report.
+		//   - A 422 with other words. api-v2 reworded it. Re-point the message, keep the 422, and
+		//     keep the test red on success.
 		//
-		// In neither case is the right move to delete or skip this test.
-		it('run-level updateValue is rejected by the current api-v2 precondition (api-v2 #5010 tripwire)', async () => {
+		// In no case is the right move to delete or skip this test, or to relax it to "rejects
+		// with anything", which could never notice a success.
+		it('run-level updateValue is refused with a 422 naming the id (api-v2 #5010 tripwire)', async () => {
 			expect(runFieldId).toBeTruthy();
-			await expect(
-				runLive({
-					resource: 'formField',
-					operation: 'updateValue',
-					asGuest: false,
-					formFieldId: runFieldId,
-					fieldType: 'text',
-					fieldValue: `${PREFIX}-rfv-value`,
-				}),
-			).rejects.toThrow(/capture/i);
+			const refusal = await runLive({
+				resource: 'formField',
+				operation: 'updateValue',
+				asGuest: false,
+				formFieldId: runFieldId,
+				fieldType: 'text',
+				fieldValue: `${PREFIX}-rfv-value`,
+			}).then(
+				() => null,
+				(error: unknown) => error as Error,
+			);
+			// Red on success: the first case above.
+			expect(refusal).not.toBeNull();
+			// The node wraps the transport error and keeps it as `cause`, which carries the status.
+			const status = (refusal!.cause as { statusCode?: number } | undefined)?.statusCode;
+			// Red on the old 500, or on any status but 422.
+			expect(status).toBe(422);
+			expect(refusal!.message).toMatch(
+				/The form field could not be found\.|No form field value matches this id\./,
+			);
+			expect(refusal!.message).not.toMatch(/capture/i);
 		});
 	});
 

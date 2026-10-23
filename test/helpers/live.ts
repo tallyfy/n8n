@@ -47,17 +47,27 @@ export interface LiveCreds {
 
 let cachedCreds: LiveCreds | null = null;
 
+/**
+ * Where the staging credentials are read from: TALLYFY_STAGING_CREDS when it names a file, else
+ * tallyfy_staging_credentials.json at the GitHub root, ~/GitHub. There is no second guess: on a
+ * machine whose repositories live elsewhere, ~/GitHub is a link to that folder or the variable is set.
+ */
+export function stagingCredsPath(): string {
+	return (
+		process.env.TALLYFY_STAGING_CREDS ||
+		join(homedir(), 'GitHub', 'tallyfy_staging_credentials.json')
+	);
+}
+
 /** Load staging credentials from the gitignored JSON at the GitHub root (path overridable). */
 export function loadCreds(): LiveCreds {
 	if (cachedCreds) return cachedCreds;
-	// The GitHub root is ~/GitHub on one Mac and ~/Documents/GitHub on the other, so the first
-	// one that holds the file wins when the environment names none.
-	const path =
-		process.env.TALLYFY_STAGING_CREDS ||
-		[join(homedir(), 'GitHub'), join(homedir(), 'Documents', 'GitHub')]
-			.map((root) => join(root, 'tallyfy_staging_credentials.json'))
-			.find((candidate) => existsSync(candidate)) ||
-		join(homedir(), 'Documents', 'GitHub', 'tallyfy_staging_credentials.json');
+	const path = stagingCredsPath();
+	if (!existsSync(path)) {
+		throw new Error(
+			`No staging credentials at ${path}. Set TALLYFY_STAGING_CREDS to the file's path.`,
+		);
+	}
 	const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, string>;
 	if (!raw.access_token) {
 		throw new Error(`Staging credentials at ${path} have no access_token`);
