@@ -155,10 +155,16 @@ node -e '
 			continue;
 		}
 		for (const pattern of include) {
+			// parsed.options are the config'"'"'s EFFECTIVE compiler options, extends included. They
+			// matter: tsc only takes a .json file from `include` when resolveJsonModule is on, so
+			// resolving with empty options counted every .json pattern as 0 even while tsc was
+			// compiling the files it names (measured 2026-10-18, tallyfy/n8n#4). They also put
+			// outDir into the default exclude, exactly as tsc does.
 			const one = ts.parseJsonConfigFileContent(
-				{ compilerOptions: {}, include: [pattern], exclude },
+				{ include: [pattern], exclude },
 				ts.sys,
 				base,
+				parsed.options,
 			);
 			out.push(["PATTERN", raw, String(pattern), String(one.fileNames.length)].join("\t"));
 		}

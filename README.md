@@ -182,11 +182,18 @@ All fields support n8n expressions, allowing you to:
 - Build dynamic queries
 - Create conditional workflows
 
+Every item the Tallyfy node outputs is linked to the input item that produced it, so expressions such as `$('Tallyfy').item` work in later nodes.
+
+### Using Tallyfy from an AI Agent
+
+The Tallyfy node is marked as usable by an n8n **AI Agent**. Connect it to an AI Agent node's **Tool** input and set the resource and operation the agent may use, as you would in an ordinary workflow. The agent calls Tallyfy with your Tallyfy API credential. No environment variable is needed.
+
 ## Compatibility
 
 - Runs as an n8n community node (nodes API version 1). Install it from **Settings > Community Nodes** or with `npm install n8n-nodes-tallyfy`.
 - Requires Node.js 20.15 or newer.
-- Built and tested against `n8n-workflow` 2.16.
+- Built with [`@n8n/node-cli`](https://www.npmjs.com/package/@n8n/node-cli), n8n's own tooling for community nodes, and linted with n8n's community node rules in strict mode. Tested against `n8n-workflow` 2.43.
+- No runtime dependencies.
 
 **Version note**: this package is on the 1.1.x line. For what each release contains, see [CHANGELOG.md](CHANGELOG.md). For the version you would install right now, ask npm rather than this page:
 
@@ -213,6 +220,18 @@ For Tallyfy API documentation, visit the [Tallyfy API Docs](https://go.tallyfy.c
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+To work on the package locally:
+
+```bash
+npm ci          # install the exact dependency tree from package-lock.json
+npm run lint    # n8n-node lint: ESLint with n8n's community node rules
+npm run build   # n8n-node build, plus the repository's include and icon checks
+npm test        # the Jest suite; the live suite runs only with TALLYFY_LIVE=1
+npm run dev     # n8n-node dev: starts a local n8n with these nodes loaded
+```
+
+Pull requests run the same lint, typecheck, test and build steps in GitHub Actions.
 
 ## License
 

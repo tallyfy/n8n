@@ -83,10 +83,17 @@ jobs:
             exit 1
           fi
 
-      # Same command release.yml runs. eslint exits non-zero on errors only, so the nine
-      # pre-existing @typescript-eslint/no-explicit-any WARNINGS in Tallyfy.node.ts do not fail
-      # this job, exactly as they do not fail the publish. Tightening that is a separate decision
-      # and deliberately not made here.
+      # Same command release.yml runs. Since 2026-10-18 `npm run lint` is `n8n-node lint` from
+      # @n8n/node-cli (tallyfy/n8n#4): ESLint 9 over the whole repository with n8n's community
+      # node rules, the same rule set n8n's verification scan applies. package.json sets
+      # `"strict": true` under `n8n`, so it also fails when eslint.config.mjs differs from the
+      # default config at all, which is what keeps the package eligible for verification.
+      # Measured the same day: a config adding one rule override made it exit 1 with "Strict mode
+      # violation", and a plain `throw new Error` planted in the node made it exit 1 too.
+      #
+      # It used to tolerate nine no-explicit-any warnings in Tallyfy.node.ts. Those are errors
+      # under the new rule set and were fixed in the same change, so the tree lints with zero
+      # warnings and zero errors.
       - name: Lint
         run: npm run lint
 
@@ -230,17 +237,20 @@ jobs:
             exit 1
           fi
 
-      # `npm run build` is `tsc && gulp build:icons && scripts/check-icons.sh`. The gulp half had
-      # never been exercised by anything before this workflow, and the icon assertion is now part
-      # of the build script itself, so this step fails on a broken icon copy on its own.
+      # `npm run build` is `scripts/check-tsconfig-includes.sh && n8n-node build &&
+      # scripts/check-icons.sh` since 2026-10-18 (tallyfy/n8n#4). `n8n-node build` from
+      # @n8n/node-cli replaced `tsc && gulp build:icons`: it clears dist, runs tsc, then copies
+      # every *.png and *.svg into dist at the same relative path. The icon assertion is part of
+      # the build script itself, so this step fails on a broken icon copy on its own.
       - name: Build
         run: npm run build
 
-      # `gulp build:icons` copies nodes/**/*.svg into dist/nodes. That glob contains magic
-      # characters, so gulp does NOT error when it matches nothing: it copies zero files and exits
-      # 0. A bare `npm run build` therefore could not distinguish a working icon copy from one that
-      # silently produced an empty set, and a published package whose node has no icon is a real
-      # user-facing defect (tallyfy/n8n#43).
+      # The build's icon copy does NOT error when it matches nothing: it copies zero files and
+      # exits 0. That was true of `gulp build:icons` (nodes/**/*.svg into dist/nodes) and it is
+      # true of `n8n-node build`'s static-file copy that replaced it on 2026-10-18 (icons/ into
+      # dist/icons), measured both times. A bare `npm run build` therefore cannot distinguish a
+      # working icon copy from one that silently produced an empty set, and a published package
+      # whose node has no icon is a real user-facing defect (tallyfy/n8n#43).
       #
       # This was an inline block until 2026-08-29. It is a script now because release.yml needs the
       # same assertion on the one path that is irreversible, and a step there can only be exercised

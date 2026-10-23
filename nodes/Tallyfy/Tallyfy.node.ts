@@ -1,4 +1,4 @@
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import type {
 	IExecuteFunctions,
 	IDataObject,
@@ -6,6 +6,7 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 	IHttpRequestOptions,
+	JsonObject,
 } from 'n8n-workflow';
 
 /**
@@ -125,7 +126,9 @@ export class Tallyfy implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Tallyfy',
 		name: 'tallyfy',
-		icon: 'file:tallyfy.svg',
+		// The same file fills both theme slots on purpose: the icon is a solid tile that reads on
+		// light and dark canvases alike, so there is no separate dark artwork to point at.
+		icon: { light: 'file:../../icons/tallyfy.svg', dark: 'file:../../icons/tallyfy.svg' },
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
@@ -133,8 +136,12 @@ export class Tallyfy implements INodeType {
 		defaults: {
 			name: 'Tallyfy',
 		},
-		inputs: ['main'],
-		outputs: ['main'],
+		// Lets an n8n AI Agent call this node as a tool. The old
+		// N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE environment switch no longer exists, so this flag
+		// is the only way a community node becomes available to the agent.
+		usableAsTool: true,
+		inputs: [NodeConnectionTypes.Main],
+		outputs: [NodeConnectionTypes.Main],
 		credentials: [
 			{
 				name: 'tallyfyApi',
@@ -154,44 +161,9 @@ export class Tallyfy implements INodeType {
 						description: 'Process templates',
 					},
 					{
-						name: 'Process',
-						value: 'process',
-						description: 'Process instances (runs)',
-					},
-					{
-						name: 'Task',
-						value: 'task',
-						description: 'Individual tasks',
-					},
-					{
-						name: 'Form Field',
-						value: 'formField',
-						description: 'Form fields in tasks',
-					},
-					{
 						name: 'Comment',
 						value: 'comment',
 						description: 'Comments on tasks or processes',
-					},
-					{
-						name: 'User',
-						value: 'user',
-						description: 'User management',
-					},
-					{
-						name: 'Guest',
-						value: 'guest',
-						description: 'Guest management',
-					},
-					{
-						name: 'Group',
-						value: 'group',
-						description: 'Group management',
-					},
-					{
-						name: 'Tag',
-						value: 'tag',
-						description: 'Tag management',
 					},
 					{
 						name: 'Folder',
@@ -199,14 +171,49 @@ export class Tallyfy implements INodeType {
 						description: 'Folder management',
 					},
 					{
-						name: 'Search',
-						value: 'search',
-						description: 'Search across Tallyfy',
+						name: 'Form Field',
+						value: 'formField',
+						description: 'Form fields in tasks',
+					},
+					{
+						name: 'Group',
+						value: 'group',
+						description: 'Group management',
+					},
+					{
+						name: 'Guest',
+						value: 'guest',
+						description: 'Guest management',
 					},
 					{
 						name: 'ID Finder',
 						value: 'idFinder',
 						description: 'Find IDs for various resources',
+					},
+					{
+						name: 'Process',
+						value: 'process',
+						description: 'Process instances (runs)',
+					},
+					{
+						name: 'Search',
+						value: 'search',
+						description: 'Search across Tallyfy',
+					},
+					{
+						name: 'Tag',
+						value: 'tag',
+						description: 'Tag management',
+					},
+					{
+						name: 'Task',
+						value: 'task',
+						description: 'Individual tasks',
+					},
+					{
+						name: 'User',
+						value: 'user',
+						description: 'User management',
 					},
 				],
 				default: 'task',
@@ -226,16 +233,10 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						name: 'Get',
-						value: 'get',
-						description: 'Get a blueprint',
-						action: 'Get a blueprint',
-					},
-					{
-						name: 'Get Many',
-						value: 'getAll',
-						description: 'Get many blueprints',
-						action: 'Get many blueprints',
+						name: 'Clone',
+						value: 'clone',
+						description: 'Clone a blueprint (template)',
+						action: 'Clone a blueprint',
 					},
 					{
 						name: 'Create',
@@ -244,22 +245,16 @@ export class Tallyfy implements INodeType {
 						action: 'Create a blueprint',
 					},
 					{
-						name: 'Update',
-						value: 'update',
-						description: 'Update a blueprint',
-						action: 'Update a blueprint',
-					},
-					{
 						name: 'Delete',
 						value: 'delete',
 						description: 'Delete a blueprint',
 						action: 'Delete a blueprint',
 					},
 					{
-						name: 'Clone',
-						value: 'clone',
-						description: 'Clone a blueprint (template)',
-						action: 'Clone a blueprint',
+						name: 'Get',
+						value: 'get',
+						description: 'Get a blueprint',
+						action: 'Get a blueprint',
 					},
 					{
 						name: 'Get Kickoff Fields',
@@ -268,10 +263,22 @@ export class Tallyfy implements INodeType {
 						action: 'Get kickoff fields',
 					},
 					{
+						name: 'Get Many',
+						value: 'getAll',
+						description: 'Get many blueprints',
+						action: 'Get many blueprints',
+					},
+					{
 						name: 'List Steps',
 						value: 'listSteps',
 						description: 'List all steps of a template',
 						action: 'List template steps',
+					},
+					{
+						name: 'Update',
+						value: 'update',
+						description: 'Update a blueprint',
+						action: 'Update a blueprint',
 					},
 				],
 				default: 'getAll',
@@ -290,10 +297,16 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						name: 'Launch',
-						value: 'launch',
-						description: 'Launch a new process from a blueprint',
-						action: 'Launch a process',
+						name: 'Archive',
+						value: 'archive',
+						description: 'Archive a process (soft delete)',
+						action: 'Archive a process',
+					},
+					{
+						name: 'Complete Kickoff Form',
+						value: 'completeKickoffForm',
+						description: 'Mark a process kickoff form as submitted',
+						action: 'Complete kickoff form',
 					},
 					{
 						name: 'Get',
@@ -308,22 +321,16 @@ export class Tallyfy implements INodeType {
 						action: 'Get many processes',
 					},
 					{
-						name: 'Update',
-						value: 'update',
-						description: 'Update a process',
-						action: 'Update a process',
-					},
-					{
-						name: 'Archive',
-						value: 'archive',
-						description: 'Archive a process (soft delete)',
-						action: 'Archive a process',
-					},
-					{
 						name: 'Get Tasks',
 						value: 'getTasks',
 						description: 'Get all tasks in a process',
 						action: 'Get process tasks',
+					},
+					{
+						name: 'Launch',
+						value: 'launch',
+						description: 'Launch a new process from a blueprint',
+						action: 'Launch a process',
 					},
 					{
 						name: 'Reactivate',
@@ -332,16 +339,16 @@ export class Tallyfy implements INodeType {
 						action: 'Reactivate a process',
 					},
 					{
-						name: 'Complete Kickoff Form',
-						value: 'completeKickoffForm',
-						description: 'Mark a process kickoff form as submitted',
-						action: 'Complete kickoff form',
-					},
-					{
 						name: 'Reopen Kickoff Form',
 						value: 'reopenKickoffForm',
 						description: 'Reopen a submitted kickoff form for edits',
 						action: 'Reopen kickoff form',
+					},
+					{
+						name: 'Update',
+						value: 'update',
+						description: 'Update a process',
+						action: 'Update a process',
 					},
 				],
 				default: 'launch',
@@ -360,10 +367,10 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						name: 'Create One-Off',
-						value: 'createOneOff',
-						description: 'Create a standalone task with all properties',
-						action: 'Create one off task',
+						name: 'Clone',
+						value: 'clone',
+						description: 'Clone a task',
+						action: 'Clone a task',
 					},
 					{
 						name: 'Complete',
@@ -372,22 +379,10 @@ export class Tallyfy implements INodeType {
 						action: 'Complete a task',
 					},
 					{
-						name: 'Get',
-						value: 'get',
-						description: 'Get a task',
-						action: 'Get a task',
-					},
-					{
-						name: 'Get Many',
-						value: 'getAll',
-						description: 'Get many tasks',
-						action: 'Get many tasks',
-					},
-					{
-						name: 'Update Properties',
-						value: 'updateProperties',
-						description: 'Update task properties (title, deadline, assignees, etc.)',
-						action: 'Update task properties',
+						name: 'Create One-Off',
+						value: 'createOneOff',
+						description: 'Create a standalone task with all properties',
+						action: 'Create a standalone task',
 					},
 					{
 						name: 'Delete',
@@ -396,22 +391,10 @@ export class Tallyfy implements INodeType {
 						action: 'Delete a task',
 					},
 					{
-						name: 'Clone',
-						value: 'clone',
-						description: 'Clone a task',
-						action: 'Clone a task',
-					},
-					{
-						name: 'Get My Tasks',
-						value: 'getMyTasks',
-						description: 'List tasks assigned to the connected user',
-						action: 'Get my tasks',
-					},
-					{
-						name: 'Get User Tasks',
-						value: 'getUserTasks',
-						description: 'List tasks assigned to a specific member',
-						action: 'Get user tasks',
+						name: 'Get',
+						value: 'get',
+						description: 'Get a task',
+						action: 'Get a task',
 					},
 					{
 						name: 'Get Guest Tasks',
@@ -420,10 +403,16 @@ export class Tallyfy implements INodeType {
 						action: 'Get guest tasks',
 					},
 					{
-						name: 'Reopen',
-						value: 'reopen',
-						description: 'Reopen a completed task',
-						action: 'Reopen a task',
+						name: 'Get Many',
+						value: 'getAll',
+						description: 'Get many tasks',
+						action: 'Get many tasks',
+					},
+					{
+						name: 'Get My Tasks',
+						value: 'getMyTasks',
+						description: 'List tasks assigned to the connected user',
+						action: 'Get my tasks',
 					},
 					{
 						name: 'Get Process Task',
@@ -432,10 +421,28 @@ export class Tallyfy implements INodeType {
 						action: 'Get process task',
 					},
 					{
+						name: 'Get User Tasks',
+						value: 'getUserTasks',
+						description: 'List tasks assigned to a specific member',
+						action: 'Get user tasks',
+					},
+					{
+						name: 'Reopen',
+						value: 'reopen',
+						description: 'Reopen a completed task',
+						action: 'Reopen a task',
+					},
+					{
 						name: 'Update Process Task',
 						value: 'updateProcessTask',
 						description: 'Update a task inside a process (title, deadline, owners, form values, status)',
 						action: 'Update process task',
+					},
+					{
+						name: 'Update Properties',
+						value: 'updateProperties',
+						description: 'Update task properties (title, deadline, assignees, etc.)',
+						action: 'Update task properties',
 					},
 				],
 				default: 'complete',
@@ -454,52 +461,10 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						name: 'Update Value',
-						value: 'updateValue',
-						description: 'Update a form field value in a task. An administrator may write a kick-off field at any time, and a task field while the task is not completed or auto-skipped. While the process is not complete, the process owner or anyone assigned to one of its live tasks may write a kick-off field. While the task is active, its assignee, directly or through a group, may write a task field. Anyone else gets 403. A value on an archived process or task cannot be written (422). Returns the updated value: the data object of the response.',
-						action: 'Update form field value',
-					},
-					{
-						name: 'Get Fields',
-						value: 'getFields',
-						description: 'Get all form fields for a task or process',
-						action: 'Get form fields',
-					},
-					{
 						name: 'Add Field',
 						value: 'addField',
 						description: 'Add a form field to a template step',
 						action: 'Add form field',
-					},
-					{
-						name: 'Update Field',
-						value: 'updateField',
-						description: 'Update a form field on a template step',
-						action: 'Update form field',
-					},
-					{
-						name: 'Move Field',
-						value: 'moveField',
-						description: 'Move a form field to another step',
-						action: 'Move form field',
-					},
-					{
-						name: 'Delete Field',
-						value: 'deleteField',
-						description: 'Delete a form field from a template step',
-						action: 'Delete form field',
-					},
-					{
-						name: 'Get Dropdown Options',
-						value: 'getDropdownOptions',
-						description: 'Get the options of a choice field',
-						action: 'Get dropdown options',
-					},
-					{
-						name: 'Update Dropdown Options',
-						value: 'updateDropdownOptions',
-						description: 'Replace the options of a choice field',
-						action: 'Update dropdown options',
 					},
 					{
 						name: 'Add Kickoff Field',
@@ -508,10 +473,10 @@ export class Tallyfy implements INodeType {
 						action: 'Add kickoff field',
 					},
 					{
-						name: 'Update Kickoff Field',
-						value: 'updateKickoffField',
-						description: 'Update a kickoff field',
-						action: 'Update kickoff field',
+						name: 'Delete Field',
+						value: 'deleteField',
+						description: 'Delete a form field from a template step',
+						action: 'Delete form field',
 					},
 					{
 						name: 'Delete Kickoff Field',
@@ -520,10 +485,52 @@ export class Tallyfy implements INodeType {
 						action: 'Delete kickoff field',
 					},
 					{
+						name: 'Get Dropdown Options',
+						value: 'getDropdownOptions',
+						description: 'Get the options of a choice field',
+						action: 'Get dropdown options',
+					},
+					{
+						name: 'Get Fields',
+						value: 'getFields',
+						description: 'Get all form fields for a task or process',
+						action: 'Get form fields',
+					},
+					{
+						name: 'Move Field',
+						value: 'moveField',
+						description: 'Move a form field to another step',
+						action: 'Move form field',
+					},
+					{
 						name: 'Reorder Kickoff Fields',
 						value: 'reorderKickoffField',
 						description: 'Reorder the template kickoff fields',
 						action: 'Reorder kickoff fields',
+					},
+					{
+						name: 'Update Dropdown Options',
+						value: 'updateDropdownOptions',
+						description: 'Replace the options of a choice field',
+						action: 'Update dropdown options',
+					},
+					{
+						name: 'Update Field',
+						value: 'updateField',
+						description: 'Update a form field on a template step',
+						action: 'Update form field',
+					},
+					{
+						name: 'Update Kickoff Field',
+						value: 'updateKickoffField',
+						description: 'Update a kickoff field',
+						action: 'Update kickoff field',
+					},
+					{
+						name: 'Update Value',
+						value: 'updateValue',
+						description: 'Update a form field value in a task. An administrator may write a kick-off field at any time, and a task field while the task is not completed or auto-skipped. While the process is not complete, the process owner or anyone assigned to one of its live tasks may write a kick-off field. While the task is active, its assignee, directly or through a group, may write a task field. Anyone else gets 403. A value on an archived process or task cannot be written (422). Returns the updated value: the data object of the response.',
+						action: 'Update form field value',
 					},
 				],
 				default: 'updateValue',
@@ -554,6 +561,18 @@ export class Tallyfy implements INodeType {
 						action: 'Create bot comment',
 					},
 					{
+						name: 'Delete',
+						value: 'delete',
+						description: 'Delete a comment',
+						action: 'Delete a comment',
+					},
+					{
+						name: 'List',
+						value: 'list',
+						description: 'List all comments and issues on a process task',
+						action: 'List task comments',
+					},
+					{
 						name: 'Report Problem',
 						value: 'reportProblem',
 						description: 'Report a problem/blocker on a task',
@@ -570,18 +589,6 @@ export class Tallyfy implements INodeType {
 						value: 'update',
 						description: 'Update a comment',
 						action: 'Update a comment',
-					},
-					{
-						name: 'Delete',
-						value: 'delete',
-						description: 'Delete a comment',
-						action: 'Delete a comment',
-					},
-					{
-						name: 'List',
-						value: 'list',
-						description: 'List all comments and issues on a process task',
-						action: 'List task comments',
 					},
 				],
 				default: 'create',
@@ -600,34 +607,10 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						name: 'Get',
-						value: 'get',
-						description: 'Get a user',
-						action: 'Get a user',
-					},
-					{
-						name: 'Get Many',
-						value: 'getAll',
-						description: 'Get many users',
-						action: 'Get many users',
-					},
-					{
-						name: 'Get Current',
-						value: 'getCurrent',
-						description: 'Get current authenticated user',
-						action: 'Get current user',
-					},
-					{
-						name: 'Invite',
-						value: 'invite',
-						description: 'Invite a user to organization',
-						action: 'Invite a user',
-					},
-					{
-						name: 'Update Role',
-						value: 'updateRole',
-						description: 'Update user role',
-						action: 'Update user role',
+						name: 'Convert to Guest',
+						value: 'convertToGuest',
+						description: 'Convert member to guest',
+						action: 'Convert to guest',
 					},
 					{
 						name: 'Disable',
@@ -642,16 +625,40 @@ export class Tallyfy implements INodeType {
 						action: 'Enable user',
 					},
 					{
-						name: 'Convert to Guest',
-						value: 'convertToGuest',
-						description: 'Convert member to guest',
-						action: 'Convert to guest',
+						name: 'Get',
+						value: 'get',
+						description: 'Get a user',
+						action: 'Get a user',
+					},
+					{
+						name: 'Get Current',
+						value: 'getCurrent',
+						description: 'Get current authenticated user',
+						action: 'Get current user',
+					},
+					{
+						name: 'Get Many',
+						value: 'getAll',
+						description: 'Get many users',
+						action: 'Get many users',
 					},
 					{
 						name: 'Get Organization',
 						value: 'getOrganization',
 						description: 'Get the organization details',
 						action: 'Get organization',
+					},
+					{
+						name: 'Invite',
+						value: 'invite',
+						description: 'Invite a user to organization',
+						action: 'Invite a user',
+					},
+					{
+						name: 'Update Role',
+						value: 'updateRole',
+						description: 'Update user role',
+						action: 'Update user role',
 					},
 				],
 				default: 'getAll',
@@ -670,10 +677,34 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
+						name: 'Convert to Member',
+						value: 'convertToMember',
+						description: 'Convert guest to member',
+						action: 'Convert to member',
+					},
+					{
 						name: 'Create',
 						value: 'create',
 						description: 'Create a guest',
 						action: 'Create a guest',
+					},
+					{
+						name: 'Delete',
+						value: 'delete',
+						description: 'Delete a guest',
+						action: 'Delete a guest',
+					},
+					{
+						name: 'Disable',
+						value: 'disable',
+						description: 'Disable a guest (blocks org access)',
+						action: 'Disable a guest',
+					},
+					{
+						name: 'Enable',
+						value: 'enable',
+						description: 'Re-enable a disabled guest',
+						action: 'Enable a guest',
 					},
 					{
 						name: 'Get',
@@ -692,30 +723,6 @@ export class Tallyfy implements INodeType {
 						value: 'update',
 						description: 'Update guest information',
 						action: 'Update a guest',
-					},
-					{
-						name: 'Delete',
-						value: 'delete',
-						description: 'Delete a guest',
-						action: 'Delete a guest',
-					},
-					{
-						name: 'Convert to Member',
-						value: 'convertToMember',
-						description: 'Convert guest to member',
-						action: 'Convert to member',
-					},
-					{
-						name: 'Enable',
-						value: 'enable',
-						description: 'Re-enable a disabled guest',
-						action: 'Enable a guest',
-					},
-					{
-						name: 'Disable',
-						value: 'disable',
-						description: 'Disable a guest (blocks org access)',
-						action: 'Disable a guest',
 					},
 				],
 				default: 'create',
@@ -740,6 +747,12 @@ export class Tallyfy implements INodeType {
 						action: 'Create a group',
 					},
 					{
+						name: 'Delete',
+						value: 'delete',
+						description: 'Delete a group',
+						action: 'Delete a group',
+					},
+					{
 						name: 'Get',
 						value: 'get',
 						description: 'Get a group',
@@ -756,12 +769,6 @@ export class Tallyfy implements INodeType {
 						value: 'update',
 						description: 'Update group (including members)',
 						action: 'Update a group',
-					},
-					{
-						name: 'Delete',
-						value: 'delete',
-						description: 'Delete a group',
-						action: 'Delete a group',
 					},
 				],
 				default: 'create',
@@ -786,10 +793,10 @@ export class Tallyfy implements INodeType {
 						action: 'Global search',
 					},
 					{
-						name: 'Search Tasks',
-						value: 'tasks',
-						description: 'Search for tasks',
-						action: 'Search tasks',
+						name: 'Search Blueprints',
+						value: 'blueprints',
+						description: 'Search for blueprints',
+						action: 'Search blueprints',
 					},
 					{
 						name: 'Search Processes',
@@ -798,16 +805,16 @@ export class Tallyfy implements INodeType {
 						action: 'Search processes',
 					},
 					{
-						name: 'Search Blueprints',
-						value: 'blueprints',
-						description: 'Search for blueprints',
-						action: 'Search blueprints',
-					},
-					{
 						name: 'Search Snippets',
 						value: 'snippets',
 						description: 'Search for text snippets',
 						action: 'Search snippets',
+					},
+					{
+						name: 'Search Tasks',
+						value: 'tasks',
+						description: 'Search for tasks',
+						action: 'Search tasks',
 					},
 				],
 				default: 'global',
@@ -826,18 +833,6 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						name: 'Find Process ID',
-						value: 'findProcessId',
-						description: 'Find process ID by name or search',
-						action: 'Find process ID',
-					},
-					{
-						name: 'Find Task ID',
-						value: 'findTaskId',
-						description: 'Find task ID by name or search',
-						action: 'Find task ID',
-					},
-					{
 						name: 'Find Blueprint ID',
 						value: 'findBlueprintId',
 						description: 'Find blueprint ID by name or search',
@@ -850,16 +845,28 @@ export class Tallyfy implements INodeType {
 						action: 'Find form field ID',
 					},
 					{
-						name: 'Find User ID',
-						value: 'findUserId',
-						description: 'Find user ID by email or name',
-						action: 'Find user ID',
-					},
-					{
 						name: 'Find Group ID',
 						value: 'findGroupId',
 						description: 'Find group ID by name',
 						action: 'Find group ID',
+					},
+					{
+						name: 'Find Process ID',
+						value: 'findProcessId',
+						description: 'Find process ID by name or search',
+						action: 'Find process ID',
+					},
+					{
+						name: 'Find Task ID',
+						value: 'findTaskId',
+						description: 'Find task ID by name or search',
+						action: 'Find task ID',
+					},
+					{
+						name: 'Find User ID',
+						value: 'findUserId',
+						description: 'Find user ID by email or name',
+						action: 'Find user ID',
 					},
 				],
 				default: 'findProcessId',
@@ -1135,6 +1142,41 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
+						displayName: 'Assign Groups',
+						name: 'assignGroups',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated list of group IDs to assign',
+					},
+					{
+						displayName: 'Assign Guests',
+						name: 'assignGuests',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated list of guest emails to assign',
+					},
+					{
+						displayName: 'Assign Users',
+						name: 'assignUsers',
+						type: 'string',
+						default: '',
+						description: 'Comma-separated list of user IDs to assign',
+					},
+					{
+						displayName: 'Max Assignable',
+						name: 'max_assignable',
+						type: 'number',
+						default: 0,
+						description: 'Maximum number of assignees allowed',
+					},
+					{
+						displayName: 'Prevent Guest Comment',
+						name: 'prevent_guest_comment',
+						type: 'boolean',
+						default: false,
+						description: 'Whether to prevent guests from commenting',
+					},
+					{
 						displayName: 'Task Type',
 						name: 'task_type',
 						type: 'options',
@@ -1158,41 +1200,6 @@ export class Tallyfy implements INodeType {
 						],
 						default: 'task',
 						description: 'Change the task type',
-					},
-					{
-						displayName: 'Assign Users',
-						name: 'assignUsers',
-						type: 'string',
-						default: '',
-						description: 'Comma-separated list of user IDs to assign',
-					},
-					{
-						displayName: 'Assign Guests',
-						name: 'assignGuests',
-						type: 'string',
-						default: '',
-						description: 'Comma-separated list of guest emails to assign',
-					},
-					{
-						displayName: 'Assign Groups',
-						name: 'assignGroups',
-						type: 'string',
-						default: '',
-						description: 'Comma-separated list of group IDs to assign',
-					},
-					{
-						displayName: 'Max Assignable',
-						name: 'max_assignable',
-						type: 'number',
-						default: 0,
-						description: 'Maximum number of assignees allowed',
-					},
-					{
-						displayName: 'Prevent Guest Comment',
-						name: 'prevent_guest_comment',
-						type: 'boolean',
-						default: false,
-						description: 'Whether to prevent guests from commenting',
 					},
 					{
 						displayName: 'Top Secret',
@@ -1219,18 +1226,11 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						displayName: 'Summary',
-						name: 'summary',
+						displayName: 'Assign Groups',
+						name: 'assignGroups',
 						type: 'string',
 						default: '',
-						description: 'Task summary',
-					},
-					{
-						displayName: 'Assign Users',
-						name: 'assignUsers',
-						type: 'string',
-						default: '',
-						description: 'Comma-separated list of user IDs to assign',
+						description: 'Comma-separated list of group IDs to assign',
 					},
 					{
 						displayName: 'Assign Guests',
@@ -1240,25 +1240,11 @@ export class Tallyfy implements INodeType {
 						description: 'Comma-separated list of guest emails to assign',
 					},
 					{
-						displayName: 'Assign Groups',
-						name: 'assignGroups',
+						displayName: 'Assign Users',
+						name: 'assignUsers',
 						type: 'string',
 						default: '',
-						description: 'Comma-separated list of group IDs to assign',
-					},
-					{
-						displayName: 'Start Date',
-						name: 'started_at',
-						type: 'dateTime',
-						default: '',
-						description: 'When the task should start',
-					},
-					{
-						displayName: 'Everyone Must Complete',
-						name: 'everyone_must_complete',
-						type: 'boolean',
-						default: false,
-						description: 'Whether all assignees must complete the task',
+						description: 'Comma-separated list of user IDs to assign',
 					},
 					{
 						displayName: 'Comment',
@@ -1271,11 +1257,25 @@ export class Tallyfy implements INodeType {
 						description: 'Comment to add when completing the task',
 					},
 					{
-						displayName: 'Webhook URL',
-						name: 'webhook',
+						displayName: 'Everyone Must Complete',
+						name: 'everyone_must_complete',
+						type: 'boolean',
+						default: false,
+						description: 'Whether all assignees must complete the task',
+					},
+					{
+						displayName: 'Start Date',
+						name: 'started_at',
+						type: 'dateTime',
+						default: '',
+						description: 'When the task should start',
+					},
+					{
+						displayName: 'Summary',
+						name: 'summary',
 						type: 'string',
 						default: '',
-						description: 'Webhook to call on task events',
+						description: 'Task summary',
 					},
 					{
 						displayName: 'Tags',
@@ -1283,6 +1283,13 @@ export class Tallyfy implements INodeType {
 						type: 'string',
 						default: '',
 						description: 'Comma-separated list of tag IDs',
+					},
+					{
+						displayName: 'Webhook URL',
+						name: 'webhook',
+						type: 'string',
+						default: '',
+						description: 'Webhook to call on task events',
 					},
 				],
 			},
@@ -1361,16 +1368,16 @@ export class Tallyfy implements INodeType {
 				name: 'fieldType',
 				type: 'options',
 				options: [
-					{ name: 'Short Text', value: 'text' },
-					{ name: 'Long Text', value: 'textarea' },
-					{ name: 'Email', value: 'email' },
-					{ name: 'Date', value: 'date' },
-					{ name: 'Radio Buttons', value: 'radio' },
-					{ name: 'Dropdown', value: 'dropdown' },
-					{ name: 'Multi-Select', value: 'multiselect' },
-					{ name: 'Table', value: 'table' },
 					{ name: 'Assignees', value: 'assignees_form' },
+					{ name: 'Date', value: 'date' },
+					{ name: 'Dropdown', value: 'dropdown' },
+					{ name: 'Email', value: 'email' },
 					{ name: 'File', value: 'file' },
+					{ name: 'Long Text', value: 'textarea' },
+					{ name: 'Multi-Select', value: 'multiselect' },
+					{ name: 'Radio Buttons', value: 'radio' },
+					{ name: 'Short Text', value: 'text' },
+					{ name: 'Table', value: 'table' },
 				],
 				default: 'text',
 				required: true,
@@ -1818,24 +1825,24 @@ export class Tallyfy implements INodeType {
 						value: 'blueprint',
 					},
 					{
+						name: 'Form Fields',
+						value: 'capture',
+					},
+					{
 						name: 'Processes',
 						value: 'process',
 					},
 					{
-						name: 'Tasks',
-						value: 'task',
+						name: 'Snippets',
+						value: 'snippet',
 					},
 					{
 						name: 'Steps',
 						value: 'step',
 					},
 					{
-						name: 'Form Fields',
-						value: 'capture',
-					},
-					{
-						name: 'Snippets',
-						value: 'snippet',
+						name: 'Tasks',
+						value: 'task',
 					},
 				],
 				default: ['blueprint', 'process', 'task'],
@@ -2080,48 +2087,11 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						displayName: 'Title',
-						name: 'title',
+						displayName: 'Assign Groups',
+						name: 'assignGroups',
 						type: 'string',
 						default: '',
-					},
-					{
-						displayName: 'Summary',
-						name: 'summary',
-						type: 'string',
-						default: '',
-					},
-					{
-						displayName: 'Deadline',
-						name: 'deadline',
-						type: 'dateTime',
-						default: '',
-					},
-					{
-						displayName: 'Status',
-						name: 'status',
-						type: 'string',
-						default: '',
-						description: 'Task status',
-					},
-					{
-						displayName: 'Position',
-						name: 'position',
-						type: 'number',
-						default: 0,
-					},
-					{
-						displayName: 'Max Assignable',
-						name: 'max_assignable',
-						type: 'number',
-						default: 0,
-					},
-					{
-						displayName: 'Assign Users',
-						name: 'assignUsers',
-						type: 'string',
-						default: '',
-						description: 'Comma-separated member IDs',
+						description: 'Comma-separated group IDs',
 					},
 					{
 						displayName: 'Assign Guests',
@@ -2131,11 +2101,42 @@ export class Tallyfy implements INodeType {
 						description: 'Comma-separated guest emails',
 					},
 					{
-						displayName: 'Assign Groups',
-						name: 'assignGroups',
+						displayName: 'Assign Users',
+						name: 'assignUsers',
 						type: 'string',
 						default: '',
-						description: 'Comma-separated group IDs',
+						description: 'Comma-separated member IDs',
+					},
+					{
+						displayName: 'Deadline',
+						name: 'deadline',
+						type: 'dateTime',
+						default: '',
+					},
+					{
+						displayName: 'Max Assignable',
+						name: 'max_assignable',
+						type: 'number',
+						default: 0,
+					},
+					{
+						displayName: 'Position',
+						name: 'position',
+						type: 'number',
+						default: 0,
+					},
+					{
+						displayName: 'Status',
+						name: 'status',
+						type: 'string',
+						default: '',
+						description: 'Task status',
+					},
+					{
+						displayName: 'Summary',
+						name: 'summary',
+						type: 'string',
+						default: '',
 					},
 					{
 						displayName: 'Task Data (JSON)',
@@ -2143,6 +2144,12 @@ export class Tallyfy implements INodeType {
 						type: 'json',
 						default: '{}',
 						description: 'Form field values keyed by capture ID',
+					},
+					{
+						displayName: 'Title',
+						name: 'title',
+						type: 'string',
+						default: '',
 					},
 				],
 			},
@@ -2298,22 +2305,10 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						name: 'Get Many',
-						value: 'getAll',
-						description: 'List org tags',
-						action: 'Get many tags',
-					},
-					{
 						name: 'Create',
 						value: 'create',
 						description: 'Create a tag',
 						action: 'Create a tag',
-					},
-					{
-						name: 'Update',
-						value: 'update',
-						description: 'Update a tag',
-						action: 'Update a tag',
 					},
 					{
 						name: 'Delete',
@@ -2322,16 +2317,10 @@ export class Tallyfy implements INodeType {
 						action: 'Delete a tag',
 					},
 					{
-						name: 'Tag Template',
-						value: 'tagTemplate',
-						description: 'Attach a tag to a template',
-						action: 'Tag a template',
-					},
-					{
-						name: 'Untag Template',
-						value: 'untagTemplate',
-						description: 'Remove a tag from a template',
-						action: 'Untag a template',
+						name: 'Get Many',
+						value: 'getAll',
+						description: 'List org tags',
+						action: 'Get many tags',
 					},
 					{
 						name: 'Tag Process',
@@ -2340,10 +2329,28 @@ export class Tallyfy implements INodeType {
 						action: 'Tag a process',
 					},
 					{
+						name: 'Tag Template',
+						value: 'tagTemplate',
+						description: 'Attach a tag to a template',
+						action: 'Tag a template',
+					},
+					{
 						name: 'Untag Process',
 						value: 'untagProcess',
 						description: 'Remove a tag from a process',
 						action: 'Untag a process',
+					},
+					{
+						name: 'Untag Template',
+						value: 'untagTemplate',
+						description: 'Remove a tag from a template',
+						action: 'Untag a template',
+					},
+					{
+						name: 'Update',
+						value: 'update',
+						description: 'Update a tag',
+						action: 'Update a tag',
 					},
 				],
 				default: 'getAll',
@@ -2392,7 +2399,7 @@ export class Tallyfy implements INodeType {
 			{
 				displayName: 'Color',
 				name: 'tagColor',
-				type: 'string',
+				type: 'color',
 				placeholder: '#FF5733',
 				default: '',
 				displayOptions: {
@@ -2443,10 +2450,10 @@ export class Tallyfy implements INodeType {
 				},
 				options: [
 					{
-						name: 'Get Many',
-						value: 'getAll',
-						description: 'List folders',
-						action: 'Get many folders',
+						name: 'Add To Folder',
+						value: 'addToFolder',
+						description: 'Add a template or process to a folder',
+						action: 'Add to folder',
 					},
 					{
 						name: 'Create',
@@ -2455,28 +2462,28 @@ export class Tallyfy implements INodeType {
 						action: 'Create a folder',
 					},
 					{
-						name: 'Update',
-						value: 'update',
-						description: 'Update a folder',
-						action: 'Update a folder',
-					},
-					{
 						name: 'Delete',
 						value: 'delete',
 						description: 'Delete a folder',
 						action: 'Delete a folder',
 					},
 					{
-						name: 'Add To Folder',
-						value: 'addToFolder',
-						description: 'Add a template or process to a folder',
-						action: 'Add to folder',
+						name: 'Get Many',
+						value: 'getAll',
+						description: 'List folders',
+						action: 'Get many folders',
 					},
 					{
 						name: 'Remove From Folder',
 						value: 'removeFromFolder',
 						description: 'Remove an object from a folder',
 						action: 'Remove from folder',
+					},
+					{
+						name: 'Update',
+						value: 'update',
+						description: 'Update a folder',
+						action: 'Update a folder',
 					},
 				],
 				default: 'getAll',
@@ -2668,12 +2675,12 @@ export class Tallyfy implements INodeType {
 								value: 'active',
 							},
 							{
-								name: 'Completed',
-								value: 'completed',
-							},
-							{
 								name: 'Archived',
 								value: 'archived',
+							},
+							{
+								name: 'Completed',
+								value: 'completed',
 							},
 							{
 								name: 'Draft',
@@ -2712,20 +2719,20 @@ export class Tallyfy implements INodeType {
 								value: 'created_at',
 							},
 							{
-								name: 'Updated Date (Newest)',
-								value: '-updated_at',
-							},
-							{
-								name: 'Updated Date (Oldest)',
-								value: 'updated_at',
-							},
-							{
 								name: 'Name (A-Z)',
 								value: 'name',
 							},
 							{
 								name: 'Name (Z-A)',
 								value: '-name',
+							},
+							{
+								name: 'Updated Date (Newest)',
+								value: '-updated_at',
+							},
+							{
+								name: 'Updated Date (Oldest)',
+								value: 'updated_at',
 							},
 						],
 						default: '-created_at',
@@ -2824,7 +2831,7 @@ export class Tallyfy implements INodeType {
 		// its TEXT and send the structured shape the API stores; scalars pass through. The API
 		// stores dropdown as {id,text}, multiselect as [{id,text,selected:true}] and radio/text as
 		// a bare scalar - proven by a create -> GET /runs/{id}?with=prerun round-trip on staging.
-		const encodeKickoffValue = (field: IDataObject, rawValue: unknown): unknown => {
+		const encodeKickoffValue = (field: IDataObject, rawValue: unknown, itemIndex: number): unknown => {
 			const fieldType = field.field_type as string;
 			const options = (field.options as IDataObject[]) || [];
 			const label = (field.label as string) || (field.id as string);
@@ -2850,7 +2857,11 @@ export class Tallyfy implements INodeType {
 				// That is an intended behaviour change, not a regression - see #30.
 				const opt = resolveChoiceOption(options, text, rawValue);
 				if (!opt) {
-					throw new Error(`Kickoff field "${label}": no dropdown option matches "${String(rawValue)}"`);
+					throw new NodeOperationError(
+						this.getNode(),
+						`Kickoff field "${label}": no dropdown option matches "${String(rawValue)}"`,
+						{ itemIndex },
+					);
 				}
 				return { id: opt.id, text: opt.text };
 			}
@@ -2865,7 +2876,11 @@ export class Tallyfy implements INodeType {
 					// branches' inconsistency visible in the first place.
 					const opt = resolveChoiceOption(options, text, text);
 					if (!opt) {
-						throw new Error(`Kickoff field "${label}": no multiselect option matches "${text}"`);
+						throw new NodeOperationError(
+							this.getNode(),
+							`Kickoff field "${label}": no multiselect option matches "${text}"`,
+							{ itemIndex },
+						);
 					}
 					// The API only persists a selected option when `selected: true` is present.
 					return { id: opt.id, text: opt.text, selected: true };
@@ -3042,11 +3057,13 @@ export class Tallyfy implements INodeType {
 									f => f.id === key || f.alias === key || f.label === key,
 								);
 								if (!field) {
-									throw new Error(
+									throw new NodeOperationError(
+										this.getNode(),
 										`Kickoff field "${key}" not found on template ${body.checklist_id}. Use the "Get kickoff fields" operation to list valid fields.`,
+										{ itemIndex: i },
 									);
 								}
-								prerun[field.id as string] = encodeKickoffValue(field, entry.value) as
+								prerun[field.id as string] = encodeKickoffValue(field, entry.value, i) as
 									| IDataObject
 									| IDataObject[]
 									| string;
@@ -3136,15 +3153,15 @@ export class Tallyfy implements INodeType {
 						const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 						
 						if (additionalFields.assignUsers) {
-							(body.owners as any).users = (additionalFields.assignUsers as string).split(',').map(id => id.trim());
+							(body.owners as IDataObject).users = (additionalFields.assignUsers as string).split(',').map(id => id.trim());
 							delete additionalFields.assignUsers;
 						}
 						if (additionalFields.assignGuests) {
-							(body.owners as any).guests = (additionalFields.assignGuests as string).split(',').map(email => email.trim());
+							(body.owners as IDataObject).guests = (additionalFields.assignGuests as string).split(',').map(email => email.trim());
 							delete additionalFields.assignGuests;
 						}
 						if (additionalFields.assignGroups) {
-							(body.owners as any).groups = (additionalFields.assignGroups as string).split(',').map(id => id.trim());
+							(body.owners as IDataObject).groups = (additionalFields.assignGroups as string).split(',').map(id => id.trim());
 							delete additionalFields.assignGroups;
 						}
 						
@@ -3191,15 +3208,15 @@ export class Tallyfy implements INodeType {
 						body.owners = { users: [], guests: [], groups: [] };
 						
 						if (updateFields.assignUsers) {
-							(body.owners as any).users = (updateFields.assignUsers as string).split(',').map(id => id.trim());
+							(body.owners as IDataObject).users = (updateFields.assignUsers as string).split(',').map(id => id.trim());
 							delete updateFields.assignUsers;
 						}
 						if (updateFields.assignGuests) {
-							(body.owners as any).guests = (updateFields.assignGuests as string).split(',').map(email => email.trim());
+							(body.owners as IDataObject).guests = (updateFields.assignGuests as string).split(',').map(email => email.trim());
 							delete updateFields.assignGuests;
 						}
 						if (updateFields.assignGroups) {
-							(body.owners as any).groups = (updateFields.assignGroups as string).split(',').map(id => id.trim());
+							(body.owners as IDataObject).groups = (updateFields.assignGroups as string).split(',').map(id => id.trim());
 							delete updateFields.assignGroups;
 						}
 						
@@ -3483,7 +3500,11 @@ export class Tallyfy implements INodeType {
 						const captures = ((stepData.captures as IDataObject[]) || []);
 						const current = captures.find((c: IDataObject) => c.id === captureFieldId);
 						if (!current) {
-							throw new Error(`Form field ${captureFieldId} not found in step ${stepId}`);
+							throw new NodeOperationError(
+								this.getNode(),
+								`Form field ${captureFieldId} not found in step ${stepId}`,
+								{ itemIndex: i },
+							);
 						}
 						const putBody: IDataObject = { ...current };
 						delete putBody.id;
@@ -3514,7 +3535,11 @@ export class Tallyfy implements INodeType {
 						const prerun = ((tmplData.prerun as IDataObject[]) || []);
 						const target = prerun.find((f: IDataObject) => f.id === kickoffFieldId);
 						if (!target) {
-							throw new Error(`Kickoff field ${kickoffFieldId} not found on template ${blueprintId}`);
+							throw new NodeOperationError(
+								this.getNode(),
+								`Kickoff field ${kickoffFieldId} not found on template ${blueprintId}`,
+								{ itemIndex: i },
+							);
 						}
 						Object.assign(target, fieldData);
 						responseData = await doRequest('PUT', `/organizations/${organizationId}/checklists/${blueprintId}`, { title: tmplData.title, prerun });
@@ -3546,7 +3571,11 @@ export class Tallyfy implements INodeType {
 						for (const fid of order) {
 							const item = byId[fid] as IDataObject;
 							if (!item) {
-								throw new Error(`Kickoff field ${fid} not found on template ${blueprintId}`);
+								throw new NodeOperationError(
+									this.getNode(),
+									`Kickoff field ${fid} not found on template ${blueprintId}`,
+									{ itemIndex: i },
+								);
 							}
 							item.position = pos++;
 							reordered.push(item);
@@ -4085,15 +4114,15 @@ export class Tallyfy implements INodeType {
 
 				// Special handling for ID Finder - return simplified results
 				if (resource === 'idFinder') {
-					let results: any[] = [];
+					let results: IDataObject[] = [];
 					if (Array.isArray(responseData)) {
 						results = responseData;
 					} else if (typeof responseData === 'object' && responseData !== null && 'data' in responseData) {
-						results = (responseData as IDataObject).data as any[] || [];
+						results = ((responseData as IDataObject).data as IDataObject[]) || [];
 					}
 					
 					if (results.length > 0) {
-						responseData = results.map((item: any) => ({
+						responseData = results.map((item: IDataObject) => ({
 							id: item.id,
 							name: item.name || item.title || item.label || item.email || 'Unknown',
 							type: operation.replace('find', '').replace('Id', ''),
@@ -4101,11 +4130,12 @@ export class Tallyfy implements INodeType {
 					}
 				}
 
-				// Format response
+				// Format response. pairedItem ties every output item back to the input item that
+				// produced it, so expressions such as $('Tallyfy').item resolve in later nodes.
 				if (Array.isArray(responseData)) {
-					returnData.push(...responseData.map(item => ({ json: item })));
+					returnData.push(...responseData.map(item => ({ json: item, pairedItem: { item: i } })));
 				} else {
-					returnData.push({ json: responseData });
+					returnData.push({ json: responseData, pairedItem: { item: i } });
 				}
 
 			} catch (error) {
@@ -4116,7 +4146,7 @@ export class Tallyfy implements INodeType {
 				if (this.continueOnFail()) {
 					const errorMessage =
 						seatMessage ?? (error instanceof Error ? error.message : String(error));
-					returnData.push({ json: { error: errorMessage } });
+					returnData.push({ json: { error: errorMessage }, pairedItem: { item: i } });
 					continue;
 				}
 				if (seatMessage) {
@@ -4131,7 +4161,14 @@ export class Tallyfy implements INodeType {
 						level: 'warning',
 					});
 				}
-				throw error;
+				// An API failure already arrives as a NodeApiError carrying the HTTP status and
+				// response, and the NodeApiError constructor hands that same instance back, so this
+				// changes nothing about it. Anything else becomes a NodeOperationError tied to the
+				// failing item; NodeOperationError likewise hands back an existing one unchanged.
+				if (error instanceof NodeApiError) {
+					throw new NodeApiError(this.getNode(), error as unknown as JsonObject, { itemIndex: i });
+				}
+				throw new NodeOperationError(this.getNode(), error as Error, { itemIndex: i });
 			}
 		}
 

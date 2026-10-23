@@ -2,9 +2,9 @@
 #
 # Fails when the icon copy step produced a different set of icons from the one on disk.
 #
-# Why this exists: `npm run build` is `tsc && gulp build:icons`, and `gulp build:icons` is
-# `src('nodes/**/*.svg').pipe(dest('dist/nodes'))`. That glob contains magic characters,
-# so gulp does NOT error when it matches nothing. It copies zero files and exits 0
+# Why this exists: until 2026-10-18 `npm run build` was `tsc && gulp build:icons`, and
+# `gulp build:icons` was `src('nodes/**/*.svg').pipe(dest('dist/nodes'))`. That glob contains
+# magic characters, so gulp does NOT error when it matches nothing. It copies zero files and exits 0
 # (tallyfy/n8n#43). A `v*` tag push in this repo is an irreversible public npm publish and
 # it runs that build, so the release path could ship a package whose node has no icon and
 # report success. The build passing told you the build ran, not that it produced anything.
@@ -13,13 +13,25 @@
 # `nodes/**/*.svg.notreal` and `dist` removed first, `npm run build` exited 0 with 0 svg
 # files under dist/nodes.
 #
-# So this asserts the OUTPUT rather than gulp's exit code, which is the thing that was
+# Since 2026-10-18 the copy is no longer gulp. The package is built with `n8n-node build` from
+# @n8n/node-cli (tallyfy/n8n#4), whose copy step is fast-glob over `**/*.{png,svg}` outside dist
+# and node_modules, each file landing at the same relative path under dist. It has the same
+# blind spot: an empty match copies nothing and the build still exits 0. Measured 2026-10-18 with
+# the icon moved out of the repository and dist removed first: `n8n-node build` exited 0 with no
+# svg under dist. Renaming icons/ inside the repository fails differently but just as quietly:
+# the copy follows the file to dist/<new name>/, the build exits 0, and the node points at an
+# icon that is not where it says (measured the same day with icons/ renamed to icons.zqaway/).
+# The icons moved at the same time, from nodes/Tallyfy/ to icons/ at the repository root, which
+# is where the node-cli templates keep an icon shared by several nodes and a credential. So the
+# default directories below are icons/ and dist/icons/ now, not nodes/ and dist/nodes/.
+#
+# So this asserts the OUTPUT rather than the copy step's exit code, which is the thing that was
 # wrong. Two assertions, one verdict:
 #   - the number of *.svg files under the output directory equals the number under the
 #     source directory
-#   - every source-relative path is present in the output. gulp's `src` base is the source
-#     directory, so nodes/Tallyfy/tallyfy.svg lands at dist/nodes/Tallyfy/tallyfy.svg and
-#     the two relative path sets are directly comparable (verified against a real build).
+#   - every source-relative path is present in the output. The copy keeps each file's path
+#     relative to the repository root, so icons/tallyfy.svg lands at dist/icons/tallyfy.svg
+#     and the two relative path sets are directly comparable (verified against a real build).
 #     The count alone would pass a stale output tree that happens to hold the same number
 #     of different files.
 #
@@ -32,7 +44,7 @@
 # and its behaviour is proven offline by test/scripts/check-icons.test.ts.
 #
 # Usage: scripts/check-icons.sh [source-dir] [output-dir]
-#        defaults: <repo>/nodes and <repo>/dist/nodes
+#        defaults: <repo>/icons and <repo>/dist/icons
 #
 # Exit codes follow scripts/check-changelog.sh and scripts/check-version-sync.sh: 0 the two
 # sets agree, 1 they disagree, 2 the check itself could not answer. 2 is reserved
@@ -42,8 +54,8 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-src_dir="${1:-$repo_root/nodes}"
-out_dir="${2:-$repo_root/dist/nodes}"
+src_dir="${1:-$repo_root/icons}"
+out_dir="${2:-$repo_root/dist/icons}"
 
 if [ ! -d "$src_dir" ]; then
 	echo "check-icons: BROKEN - no such source directory: $src_dir" >&2
@@ -83,7 +95,7 @@ fi
 
 # A missing output directory means the build has not run, which is a different statement
 # from "the copy produced nothing", and reporting it as the latter sends someone to debug
-# gulp when they simply never built. Still non-zero, so a workflow step still goes red.
+# the copy step when they simply never built. Still non-zero, so a workflow step still goes red.
 if [ ! -d "$out_dir" ]; then
 	cat >&2 <<MSG
 check-icons: BROKEN - no such output directory: $out_dir
@@ -129,12 +141,12 @@ extra="$(LC_ALL=C comm -13 "$work/src.txt" "$work/out.txt" || true)"
 	fi
 	cat <<'MSG'
 
-`gulp build:icons` copies nodes/**/*.svg into dist/nodes. That glob does not error when it
-matches nothing, so gulp reports success either way and only this comparison can tell the
-two apart (tallyfy/n8n#43).
+`n8n-node build` copies every *.png and *.svg outside dist and node_modules to the same
+relative path under dist. That copy does not error when it matches nothing, so the build
+reports success either way and only this comparison can tell the two apart (tallyfy/n8n#43).
 
-Check that the glob in gulpfile.js still matches where the icons actually live. If the
-output tree is merely stale, rebuild it from scratch:
+Check that the icons still live where this script looks for them. If the output tree is
+merely stale, rebuild it from scratch:
 
   rm -rf dist && npm run build
 MSG

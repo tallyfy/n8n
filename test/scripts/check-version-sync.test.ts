@@ -1,3 +1,7 @@
+/* eslint-disable @n8n/community-nodes/no-restricted-imports, @n8n/community-nodes/no-restricted-globals, @n8n/community-nodes/no-dangerous-functions, @n8n/community-nodes/require-node-api-error --
+ * Those four rules guard code that runs inside n8n. This is a Jest test that drives a repository
+ * script through child_process and temporary files. It never ships in the npm package, and n8n's
+ * community package scan does not lint test/. */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';

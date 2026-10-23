@@ -1,3 +1,7 @@
+/* eslint-disable @n8n/community-nodes/no-restricted-imports, @n8n/community-nodes/no-restricted-globals, @n8n/community-nodes/no-dangerous-functions, @n8n/community-nodes/require-node-api-error --
+ * Those four rules guard code that runs inside n8n. This is a Jest test that drives a repository
+ * script through child_process and temporary files. It never ships in the npm package, and n8n's
+ * community package scan does not lint test/. */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -108,6 +112,67 @@ describe('scripts/check-tsconfig-includes.sh', () => {
 		expect(Array.isArray(include)).toBe(true);
 		expect(include.length).toBeGreaterThan(0);
 		expect(run().stdout).toMatch(/all \d+ include pattern\(s\) across \d+ config\(s\)/);
+	});
+
+	// tsc takes a .json file from `include` only when resolveJsonModule is on. The script used to
+	// resolve every pattern with EMPTY compiler options, so it reported a .json pattern as matching
+	// 0 files even while tsc was compiling the files it names. The node-cli scaffold's tsconfig
+	// includes nodes/**/*.json (the codex files) and package.json, so that turned a correct tree red
+	// (tallyfy/n8n#4). Both arms run here against tsc's own file list, so the script is held to
+	// agree with the compiler in each direction rather than only in the one that was broken.
+	it('counts a .json include the way tsc does, with and without resolveJsonModule', () => {
+		// fixture() writes TypeScript into every file it creates, so the JSON file is written here.
+		const withJsonFile = (dir: string) => {
+			fs.writeFileSync(path.join(dir, 'src', 'data.json'), '{"x": 1}\n', 'utf8');
+			return dir;
+		};
+		const files = ['src/a.ts'];
+		const withJson = JSON.stringify({
+			compilerOptions: { noEmit: true, resolveJsonModule: true },
+			include: ['src/**/*.ts', 'src/**/*.json'],
+		});
+		const withoutJson = JSON.stringify({
+			compilerOptions: { noEmit: true },
+			include: ['src/**/*.ts', 'src/**/*.json'],
+		});
+		const dirWith = withJsonFile(fixture(files, { 'tsconfig.json': withJson }));
+		const dirWithout = withJsonFile(fixture(files, { 'tsconfig.json': withoutJson }));
+		const tsc = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsc');
+		const listed = (dir: string) =>
+			execFileSync(tsc, ['-p', path.join(dir, 'tsconfig.json'), '--listFilesOnly'], {
+				encoding: 'utf8',
+			})
+				.split('\n')
+				.filter((line) => line.endsWith('data.json')).length;
+
+		// The compiler itself, both arms: the json file is in the program only with the option on.
+		expect(listed(dirWith)).toBe(1);
+		expect(listed(dirWithout)).toBe(0);
+
+		// The script agrees in both directions.
+		const resWith = run([path.join(dirWith, 'tsconfig.json')]);
+		expect(resWith.status).toBe(0);
+		expect(resWith.stdout).toContain('OK');
+		const resWithout = run([path.join(dirWithout, 'tsconfig.json')]);
+		expect(resWithout.status).toBe(1);
+		expect(resWithout.stderr).toContain('include src/**/*.json matches 0 files');
+	});
+
+	// An option inherited through `extends` counts too, because tsc applies it. The jest config in
+	// this repository gets resolveJsonModule from tsconfig.json that way.
+	it('honours resolveJsonModule inherited through extends', () => {
+		const dir = fixture(['src/a.ts'], {
+			'tsconfig.base.json': JSON.stringify({ compilerOptions: { resolveJsonModule: true } }),
+			'tsconfig.json': JSON.stringify({
+				extends: './tsconfig.base.json',
+				compilerOptions: { noEmit: true },
+				include: ['src/**/*.json'],
+			}),
+		});
+		fs.writeFileSync(path.join(dir, 'src', 'data.json'), '{"x": 1}\n', 'utf8');
+		const res = run([path.join(dir, 'tsconfig.json')]);
+		expect(res.status).toBe(0);
+		expect(res.stdout).toContain('OK');
 	});
 
 	// The real tsconfig.jest.json carries // comments. Parsing it with JSON.parse would throw, so

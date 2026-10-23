@@ -152,11 +152,13 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Stops a release whose node ships with no icon. `npm run build` is
-      # `tsc && gulp build:icons && scripts/check-icons.sh`, and until 2026-08-29 it was the first
-      # two of those only. `gulp build:icons` is `src('nodes/**/*.svg').pipe(dest('dist/nodes'))`,
-      # and a glob with magic characters does NOT error when it matches nothing: it copies zero
-      # files and exits 0, so the build exited 0 too (tallyfy/n8n#43). Measured before the fix,
+      # Stops a release whose node ships with no icon. Until 2026-08-29 `npm run build` was
+      # `tsc && gulp build:icons` alone. `gulp build:icons` was
+      # `src('nodes/**/*.svg').pipe(dest('dist/nodes'))`, and a glob with magic characters does NOT
+      # error when it matches nothing: it copies zero files and exits 0, so the build exited 0 too
+      # (tallyfy/n8n#43). Since 2026-10-18 the build is `n8n-node build` from @n8n/node-cli
+      # (tallyfy/n8n#4), whose copy of icons/ into dist/icons has the same blind spot, measured
+      # the same day, so this check still earns its place. Measured before the fix,
       # with the glob pointed at `nodes/**/*.svg.notreal` and dist removed first: build exit 0,
       # zero svg under dist/nodes. So the Build step above reported success on a package that
       # would have been published without its icon.

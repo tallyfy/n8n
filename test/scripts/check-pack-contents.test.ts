@@ -1,3 +1,7 @@
+/* eslint-disable @n8n/community-nodes/no-restricted-imports, @n8n/community-nodes/no-restricted-globals, @n8n/community-nodes/no-dangerous-functions, @n8n/community-nodes/require-node-api-error --
+ * Those four rules guard code that runs inside n8n. This is a Jest test that drives a repository
+ * script through child_process and temporary files. It never ships in the npm package, and n8n's
+ * community package scan does not lint test/. */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -64,7 +68,7 @@ describe('scripts/check-pack-contents.sh', () => {
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	const NODES = ['dist/nodes/Tallyfy/Tallyfy.node.js', 'dist/nodes/Tallyfy/TallyfyTrigger.node.js'];
+	const NODES = ['dist/nodes/Tallyfy/Tallyfy.node.js', 'dist/nodes/TallyfyTrigger/TallyfyTrigger.node.js'];
 	const CREDS = ['dist/credentials/TallyfyApi.credentials.js'];
 
 	// Builds a package directory. `declared` is what package.json's n8n block claims; `present` is
