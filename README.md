@@ -215,7 +215,7 @@ The server acts as the user who owns the token, with that user's permissions in 
 - Built with [`@n8n/node-cli`](https://www.npmjs.com/package/@n8n/node-cli), n8n's own tooling for community nodes, and linted with n8n's community node rules in strict mode. Tested against `n8n-workflow` 2.43.
 - No runtime dependencies.
 
-**Version note**: this package is on the 1.2.x line. For what each release contains, see [CHANGELOG.md](CHANGELOG.md). For the version you would install right now, ask npm rather than this page:
+**Version note**: this package is on the 1.3.x line. For what each release contains, see [CHANGELOG.md](CHANGELOG.md). For the version you would install right now, ask npm rather than this page:
 
 ```bash
 npm view n8n-nodes-tallyfy version

@@ -285,6 +285,12 @@ Job resource, counted from the operation lists in `nodes/Tallyfy/Tallyfy.node.ts
   workflow installed (see the third trap below). The owner decided the same day to release as
   1.2.1 and leave the `v1.2.0` tag as the record of the failed run, so never delete or move it,
   and never reuse 1.2.0. The release PR for #52 fixes the check, pins npm, and bumps to 1.2.1.
+
+  **Reading of 2026-10-23, evening: the version after 1.2.1 is 1.3.0, from PR #56.** That PR
+  carries the Scheduled Job resource (#53), the Get Many paging fix (#55) and the README section
+  on Tallyfy's MCP server (#57), merges `main` after 1.2.1 (#58, `3544b75`), bumps `package.json`
+  and the lock to 1.3.0, and files its notes under `## [1.3.0] - 2026-10-23`. As with every
+  release, the tag `v1.3.0` is the publish and is pushed only after that PR's review and merge.
 - ⚠️ **Two traps, both measured rather than theorised.** (1) `actions/setup-node` must NOT set
   `registry-url` here. With it, setup-node writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
   into a temp `.npmrc`; with no token that expands to empty, npm treats auth as configured, **skips
