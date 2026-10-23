@@ -5326,28 +5326,45 @@ export class Tallyfy implements INodeType {
 					body: Object.keys(body).length ? body : undefined,
 				};
 
+				// Every Tallyfy list takes its page size from per_page and ignores limit (measured on
+				// staging, #55), so a Limit travels as per_page as well. limit stays in the query as
+				// it always was.
+				if (qs.limit !== undefined && qs.per_page === undefined) {
+					qs.per_page = qs.limit;
+				}
+
 				// returnAll walks every page in the loop below, so it must NOT also
 				// fire the base request here (that previously double-fetched page 1). See #5.
-				if (operation === 'getAll' && this.getNodeParameter('returnAll', i)) {
+				// The three task lists offer Return All too, and used to return one page for it (#55).
+				if (
+					['getAll', 'getMyTasks', 'getUserTasks', 'getGuestTasks'].includes(operation as string) &&
+					this.getNodeParameter('returnAll', i)
+				) {
 					const allItems: IDataObject[] = [];
 					let hasMore = true;
 					let page = 1;
 
 					while (hasMore) {
-						options.qs = { ...qs, page };
+						// 100 a page, which every list accepted on staging (#55), so a long list
+						// takes a tenth of the requests its default page of 10 would.
+						options.qs = { per_page: 100, ...qs, page };
 						const pageData = await this.helpers.httpRequestWithAuthentication.call(
 							this,
 							'tallyfyApi',
 							options,
 						);
 
-						if (Array.isArray(pageData.data)) {
-							allItems.push(...pageData.data);
-						}
+						const rows = Array.isArray(pageData.data) ? (pageData.data as IDataObject[]) : [];
+						allItems.push(...rows);
 
-						if (!pageData.meta?.pagination?.has_more_pages) {
-							hasMore = false;
-						}
+						// The API reports current_page and total_pages and has never sent
+						// has_more_pages, which this loop used to wait for, so it stopped after page
+						// one (#55). An empty page ends it either way.
+						const pagination = (pageData.meta?.pagination ?? {}) as IDataObject;
+						const totalPages = Number(pagination.total_pages);
+						hasMore =
+							rows.length > 0 &&
+							(pagination.has_more_pages === true || (Number.isFinite(totalPages) && page < totalPages));
 						page++;
 					}
 					responseData = allItems;

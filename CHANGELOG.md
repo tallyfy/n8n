@@ -91,6 +91,13 @@ exists) and its own tag. Nobody has decided to cut it yet.
     envelope.
 
 ### Fixed
+- **Get Many now honours Limit, and Return All returns every page.** The node sent the page size
+  as `limit`, which every Tallyfy list ignores in favour of `per_page`, so most lists returned 10
+  rows whatever the Limit said. Return All waited for a `has_more_pages` key the API never sends,
+  so it stopped after the first page. The node now sends `per_page` with the limit, and Return All
+  asks for 100 rows a page and stops at `total_pages`. Get My Tasks, Get User Tasks and Get Guest
+  Tasks, whose Return All never paged at all, page the same way. Measured on staging across
+  eleven list endpoints before the change. (#55)
 - Form field **Update Value** with **As Guest** now sends the guest's access code, which is
   what api-v2 finds the guest by on `POST guests/{guest}/form-field/value`. It used to send the
   guest's email, which never matched (api-v2 answers 404 for it since api-v2 #8955, and failed

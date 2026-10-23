@@ -887,9 +887,11 @@ describe('Tallyfy node - request building', () => {
 			const opts = requestAt(httpMock, 0);
 			expect(opts.method).toBe('GET');
 			expect(opts.url).toBe(`${BASE}/organizations/${ORG}/checklists`);
-			expect(opts.qs).toEqual({ q: 'sales', status: 'active', limit: 25 });
+			// The API reads per_page and ignores limit (#55), so the limit travels as both.
+			expect(opts.qs).toEqual({ q: 'sales', status: 'active', limit: 25, per_page: 25 });
 		});
 
+		// has_more_pages is honoured if an API ever sends it; Tallyfy's never has (#55, below).
 		it('paginates through all pages when returnAll is true', async () => {
 			const { result, httpMock } = await run(
 				{ resource: 'blueprint', operation: 'getAll', returnAll: true, filters: {} },
@@ -1309,6 +1311,73 @@ describe('Tallyfy node - request building', () => {
 			expect(seatPoolExhaustedMessage(nest(3))).toMatch(/No full seats are left/);
 			expect(seatPoolExhaustedMessage(nest(4))).toBeUndefined();
 		});
+	});
+});
+
+// tallyfy/n8n#55. Every Tallyfy list reads per_page and ignores limit, and reports
+// meta.pagination.current_page and total_pages with no has_more_pages. Measured on staging on
+// 2026-10-23 across eleven list endpoints; production's recurring-jobs answered the same keys.
+describe('Tallyfy node - list paging (#55)', () => {
+	/** A page as the API sends it: Fractal's pagination keys, and no has_more_pages. */
+	const page = (ids: string[], current: number, total: number) => ({
+		data: ids.map((id) => ({ id })),
+		meta: { pagination: { total: 0, count: ids.length, per_page: 100, current_page: current, total_pages: total, links: {} } },
+	});
+
+	it('Return All walks every page by total_pages, 100 at a time', async () => {
+		const { result, httpMock } = await run(
+			{ resource: 'blueprint', operation: 'getAll', returnAll: true, filters: { q: 'sales' } },
+			[page(['a'], 1, 3), page(['b'], 2, 3), page(['c'], 3, 3)],
+		);
+		expect(result[0].map((i) => i.json)).toEqual([{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+		expect(httpMock).toHaveBeenCalledTimes(3);
+		expect(requestAt(httpMock, 0).qs).toEqual({ per_page: 100, q: 'sales', page: 1 });
+		expect(requestAt(httpMock, 2).qs).toEqual({ per_page: 100, q: 'sales', page: 3 });
+	});
+
+	it('Return All stops at the last page and on an empty page', async () => {
+		const one = await run(
+			{ resource: 'process', operation: 'getAll', returnAll: true, filters: {} },
+			[page(['a'], 1, 1), page(['never'], 2, 2)],
+		);
+		expect(one.httpMock).toHaveBeenCalledTimes(1);
+		const empty = await run(
+			{ resource: 'task', operation: 'getAll', returnAll: true, filters: {} },
+			[page([], 1, 4), page(['never'], 2, 4)],
+		);
+		expect(empty.httpMock).toHaveBeenCalledTimes(1);
+		expect(empty.result[0]).toEqual([]);
+	});
+
+	it.each([
+		['getMyTasks', {}, '/me/tasks'],
+		['getUserTasks', { userId: 'U1' }, '/users/U1/tasks'],
+		['getGuestTasks', { guestId: 'G1' }, '/guests/G1/tasks'],
+	])('%s pages through every page when Return All is on', async (operation, extra, path) => {
+		const { result, httpMock } = await run(
+			{ resource: 'task', operation, returnAll: true, filters: {}, ...extra },
+			[page(['a'], 1, 2), page(['b'], 2, 2)],
+		);
+		expect(httpMock).toHaveBeenCalledTimes(2);
+		expect(requestAt(httpMock, 0).url).toBe(`${BASE}/organizations/${ORG}${path}`);
+		expect(requestAt(httpMock, 1).qs).toMatchObject({ per_page: 100, page: 2 });
+		expect(result[0].map((i) => i.json)).toEqual([{ id: 'a' }, { id: 'b' }]);
+	});
+
+	it('sends the Limit as per_page on the task lists too, and keeps the response as it was', async () => {
+		const response = page(['a', 'b'], 1, 5);
+		const { result, httpMock } = await run(
+			{ resource: 'task', operation: 'getMyTasks', returnAll: false, limit: 2, filters: {} },
+			[response],
+		);
+		expect(requestAt(httpMock, 0).qs).toEqual({ limit: 2, per_page: 2 });
+		// Without Return All the node still outputs the response itself, one item.
+		expect(result[0].map((i) => i.json)).toEqual([response]);
+	});
+
+	it('leaves a list that already sets per_page alone', async () => {
+		const { httpMock } = await run({ resource: 'idFinder', operation: 'findTaskId', searchTerm: 'invoice' });
+		expect(requestAt(httpMock, 0).qs).toEqual({ q: 'invoice', per_page: 10 });
 	});
 });
 

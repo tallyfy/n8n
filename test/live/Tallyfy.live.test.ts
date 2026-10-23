@@ -141,6 +141,29 @@ d('Tallyfy live API', () => {
 			).rejects.toThrow();
 		});
 
+		// #55: the API reads per_page, not limit, and never sends has_more_pages, so Return All
+		// used to stop at the default page of 10. It must now return every blueprint the API counts.
+		it('returns every blueprint for Return All, and a Limit above 10 is honoured', async () => {
+			const counted = await rawApi('GET', `/organizations/${TEST_ORG}/checklists`, undefined, { per_page: 1 });
+			const total = Number(((counted.meta as IDataObject).pagination as IDataObject).total);
+			// Over 10, or the old one-page loop would pass this too (22 on 2026-10-23).
+			expect(total).toBeGreaterThan(10);
+
+			const all = await runLive({ resource: 'blueprint', operation: 'getAll', returnAll: true, filters: {} });
+			expect(all.out.length).toBe(total);
+			expect(all.captured[0].options.qs).toMatchObject({ per_page: 100, page: 1 });
+
+			const limited = await runLive({
+				resource: 'blueprint',
+				operation: 'getAll',
+				returnAll: false,
+				filters: {},
+				limit: 12,
+			});
+			const rows = ((limited.out[0].json as IDataObject).data as IDataObject[]) || [];
+			expect(rows.length).toBe(Math.min(12, total));
+		});
+
 		it('lists blueprints (getAll, limited) and returns an array', async () => {
 			const res = await runLive({
 				resource: 'blueprint',
