@@ -49,6 +49,8 @@ its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
 ### Added
 - **New Scheduled Job resource for Tallyfy's Once and Recurring jobs**, which api-v2 calls
   recurring jobs. Operations: Create, Get, Get Many, Get History, Update, Pause, Resume and
@@ -86,7 +88,39 @@ its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
   Tasks, whose Return All never paged at all, page the same way. Measured on staging across
   eleven list endpoints before the change. (#55)
 
+## [1.2.1] - 2026-10-23
+
+**1.2.0 was tagged but never published, so 1.2.1 is the first release on npm that carries
+everything listed under 1.2.0 below,** including its need for n8n 1.85.0 or later. Nothing in the
+nodes changed between the two. The `v1.2.0` tag started the release workflow, which stopped at
+its pack contents check, before the publish step, so npm kept serving 1.1.3 (Release run
+39905616620, #52). The workflow installed the newest npm, 12.2.1, and npm 12 prints
+`npm pack --json` in a different shape from the npm 10 that every pull request ran, so the check
+could not read the file list and refused. The `v1.2.0` tag stays as the record of that run.
+
+### Fixed
+- `scripts/check-pack-contents.sh` reads npm 12's `npm pack --dry-run --json` output, an object
+  keyed by package name, as well as npm 10's one-element array and a bare object. It still
+  refuses (exit 2) when the output describes no package or more than one, or when the one
+  package has no file list. Measured on this package: npm 10.9.9 prints the array, and npm 12.0.2
+  and 12.2.1 both print the keyed object. Seven new tests in
+  `test/scripts/check-pack-contents.test.ts` run the real script with a stand-in `npm` first on
+  PATH. Two use real npm output reprinted in npm 12's shape: a built package passes, and an
+  unbuilt one fails naming all three entry points. One passes a bare object, and four refuse an
+  object of two packages, an array of two, a package with no file list, and an empty object. (#52)
+
+### Changed
+- The release workflow installs npm 12.0.2 instead of `latest`, so a release no longer runs an
+  npm that no pull request has run. 12.0.2 is the version that published 1.1.3 through trusted
+  publishing with provenance. CI's `build` job now installs the same npm before `npm ci`, so the
+  build and the pack check on every pull request run under the npm a release uses. A new test,
+  `test/scripts/npm-pin.test.ts`, fails if `release.yml` pins anything but one exact version or if
+  the two workflows pin different ones. (#52)
+
 ## [1.2.0] - 2026-10-23
+
+Tagged on 2026-10-23 and never published: the release stopped at the pack contents check (see
+1.2.1). Everything in this section first reached npm in 1.2.1.
 
 **This version needs n8n 1.85.0 or later.** Both nodes now name their inputs and outputs with
 `NodeConnectionTypes.Main`, as n8n's community node rules require, and they read that value at

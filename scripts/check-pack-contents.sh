@@ -142,12 +142,40 @@ fi
 # npm's own count of the same set, so requiring it to equal the number of paths returned is
 # an assertion a malformed or truncated manifest cannot satisfy. A check whose every arm
 # asserts the same shape cannot tell a working probe from a broken one.
+#
+# npm changed the shape of that manifest between major versions, and this has to read both.
+# npm 10 prints a one-element array, `[{ name, files, entryCount, ... }]`. npm 12 prints an
+# object keyed by package name, `{ "n8n-nodes-tallyfy": { name, files, entryCount, ... } }`.
+# Measured 2026-10-23 on this package: npm 10.9.9 printed the array, and npm 12.0.2 and 12.2.1
+# both printed the keyed object. Until then this read only the array or a bare object, so under
+# npm 12 it found no files array and refused, which is what stopped the v1.2.0 release at this
+# step (Release run 39905616620, tallyfy/n8n#52). The refusal was correct, since an unreadable
+# manifest proves nothing, but the cause was the shape, not the package.
+#
+# So the manifest is first reduced to a list of package descriptions, whichever shape it came
+# in, and exactly one is required. Two or more (a workspace pack, or an object whose keys are
+# not packages) and none at all are both refusals: this checks one package, and guessing which
+# description is ours would let a wrong one pass.
 paths_rc=0
 node -e '
 	const fs = require("fs");
 	const raw = fs.readFileSync(process.argv[1], "utf8");
 	const parsed = JSON.parse(raw);
-	const first = Array.isArray(parsed) ? parsed[0] : parsed;
+	let packs;
+	if (Array.isArray(parsed)) {
+		packs = parsed;
+	} else if (parsed && typeof parsed === "object" && Array.isArray(parsed.files)) {
+		packs = [parsed];
+	} else if (parsed && typeof parsed === "object") {
+		packs = Object.values(parsed);
+	} else {
+		packs = [];
+	}
+	if (packs.length !== 1) {
+		process.stderr.write("npm pack --json described " + packs.length + " package(s), expected exactly 1\n");
+		process.exit(6);
+	}
+	const first = packs[0];
 	if (!first || !Array.isArray(first.files)) {
 		process.stderr.write("npm pack --json returned no files array\n");
 		process.exit(3);
