@@ -41,11 +41,12 @@ interface RunResult {
 }
 
 // Invokes the script directly rather than through `bash`, so a lost executable bit fails here
-// rather than at publish time.
-function run(pkgDir?: string): RunResult {
+// rather than at publish time. `env` replaces the environment when given, which is how the
+// npm 12 cases below put a stand-in `npm` first on PATH.
+function run(pkgDir?: string, env?: NodeJS.ProcessEnv): RunResult {
 	const args = pkgDir === undefined ? [] : [pkgDir];
 	try {
-		const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', stdio: 'pipe' });
+		const stdout = execFileSync(SCRIPT, args, { encoding: 'utf8', stdio: 'pipe', env: env ?? process.env });
 		return { status: 0, stdout, stderr: '' };
 	} catch (err) {
 		const e = err as { status?: number; stdout?: string; stderr?: string };
@@ -267,4 +268,172 @@ describe('scripts/check-pack-contents.sh', () => {
 		},
 		TIMEOUT_MS,
 	);
+
+	// tallyfy/n8n#52. npm 10 prints `npm pack --dry-run --json` as a one-element array; npm 12
+	// prints an object keyed by package name. The release workflow installs npm 12 before this
+	// check runs, and the check read only the array (or a bare object), so the v1.2.0 release
+	// stopped here with "no files array" and published nothing. CI and this suite ran npm 10, so
+	// nothing before the tag saw the npm 12 shape.
+	//
+	// These cases put a stand-in `npm` first on PATH and run the real script. In "wrap" mode the
+	// stand-in runs the real npm and reprints its manifest in npm 12's keyed shape, so the file list
+	// is npm's own and only the shape differs. In "canned" mode it prints a fixed manifest, for the
+	// shapes no real npm produces for one package. It also records what it printed, so each case can
+	// assert the script was really handed the shape it is named after.
+	describe('npm 12 manifest shape', () => {
+		let binDir: string;
+		let realNpm: string;
+		let caseSeq = 0;
+
+		beforeAll(() => {
+			realNpm = execFileSync('sh', ['-c', 'command -v npm'], { encoding: 'utf8' }).trim();
+			expect(realNpm.length).toBeGreaterThan(0);
+			binDir = path.join(tmpDir, 'fake-npm-bin');
+			fs.mkdirSync(binDir, { recursive: true });
+			const shim = [
+				'#!/usr/bin/env node',
+				"const fs = require('fs');",
+				"const { execFileSync } = require('child_process');",
+				'let text;',
+				'if (process.env.FAKE_NPM_CANNED) {',
+				"\ttext = fs.readFileSync(process.env.FAKE_NPM_CANNED, 'utf8');",
+				'} else {',
+				"\tconst out = execFileSync(process.env.FAKE_NPM_REAL, process.argv.slice(2), { encoding: 'utf8' });",
+				'\tconst parsed = JSON.parse(out);',
+				'\tconst keyed = Array.isArray(parsed) && parsed.length === 1 ? { [parsed[0].name]: parsed[0] } : parsed;',
+				'\tif (Array.isArray(keyed) || Array.isArray(keyed.files)) {',
+				"\t\tprocess.stderr.write('fake npm: could not build the keyed shape\\n');",
+				'\t\tprocess.exit(97);',
+				'\t}',
+				'\ttext = JSON.stringify(keyed, null, 2);',
+				'}',
+				'fs.writeFileSync(process.env.FAKE_NPM_RECORD, text);',
+				'process.stdout.write(text);',
+				'',
+			].join('\n');
+			fs.writeFileSync(path.join(binDir, 'npm'), shim, { encoding: 'utf8', mode: 0o755 });
+		});
+
+		function runWithFakeNpm(dir: string, canned?: unknown): RunResult & { printed: unknown } {
+			const record = path.join(tmpDir, `npm-record-${caseSeq++}.json`);
+			const env: NodeJS.ProcessEnv = {
+				...process.env,
+				PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ''}`,
+				FAKE_NPM_REAL: realNpm,
+				FAKE_NPM_RECORD: record,
+			};
+			delete env.FAKE_NPM_CANNED;
+			if (canned !== undefined) {
+				const cannedPath = path.join(tmpDir, `npm-canned-${caseSeq++}.json`);
+				fs.writeFileSync(cannedPath, JSON.stringify(canned), 'utf8');
+				env.FAKE_NPM_CANNED = cannedPath;
+			}
+			const res = run(dir, env);
+			// The stand-in must have run, or the case proves nothing about the shape.
+			expect(fs.existsSync(record)).toBe(true);
+			return { ...res, printed: JSON.parse(fs.readFileSync(record, 'utf8')) };
+		}
+
+		// What a one-package manifest looks like for a fully built fixture, in npm's own field names.
+		function description(name: string, paths: string[]): Record<string, unknown> {
+			const files = paths.map((p) => ({ path: p, size: 1, mode: 420 }));
+			return { id: `${name}@1.0.0`, name, version: '1.0.0', files, entryCount: files.length };
+		}
+		const ALL = ['package.json', 'index.js', ...NODES, ...CREDS];
+
+		it(
+			'passes a built package when npm prints the keyed object',
+			() => {
+				const dir = pkg({ nodes: NODES, credentials: CREDS }, [...NODES, ...CREDS]);
+				const res = runWithFakeNpm(dir);
+				const printed = res.printed as Record<string, { files?: unknown }>;
+				expect(Array.isArray(printed)).toBe(false);
+				expect(Object.keys(printed)).toEqual(['fixture-nodes-tallyfy']);
+				expect(Array.isArray(printed['fixture-nodes-tallyfy'].files)).toBe(true);
+				expect(res.status).toBe(0);
+				expect(res.stdout).toContain('all 3 declared entry point(s)');
+			},
+			TIMEOUT_MS,
+		);
+
+		// The red direction in the new shape, so a reader that returned an empty or made-up list
+		// for the keyed object could not pass by accident.
+		it(
+			'still fails an unbuilt package when npm prints the keyed object',
+			() => {
+				const dir = pkg({ nodes: NODES, credentials: CREDS }, []);
+				const res = runWithFakeNpm(dir);
+				expect(Array.isArray(res.printed)).toBe(false);
+				expect(res.status).toBe(1);
+				expect(res.stderr).toContain('missing 3 of 3 declared entry point(s)');
+				for (const p of [...NODES, ...CREDS]) expect(res.stderr).toContain(p);
+			},
+			TIMEOUT_MS,
+		);
+
+		it(
+			'still reads a bare object that carries the files itself',
+			() => {
+				const dir = pkg({ nodes: NODES, credentials: CREDS }, [...NODES, ...CREDS]);
+				const res = runWithFakeNpm(dir, description('fixture-nodes-tallyfy', ALL));
+				expect(res.status).toBe(0);
+				expect(res.stdout).toContain('all 3 declared entry point(s)');
+			},
+			TIMEOUT_MS,
+		);
+
+		// The controls. Each manifest below would pass on its contents alone, since every one
+		// lists all three entry points, so a refusal here can only come from the shape rule.
+		it(
+			'refuses an object describing two packages',
+			() => {
+				const dir = pkg({ nodes: NODES, credentials: CREDS }, [...NODES, ...CREDS]);
+				const res = runWithFakeNpm(dir, {
+					'fixture-nodes-tallyfy': description('fixture-nodes-tallyfy', ALL),
+					'another-package': description('another-package', ALL),
+				});
+				expect(res.status).toBe(2);
+				expect(res.stderr).toContain('described 2 package(s), expected exactly 1');
+			},
+			TIMEOUT_MS,
+		);
+
+		it(
+			'refuses an array describing two packages',
+			() => {
+				const dir = pkg({ nodes: NODES, credentials: CREDS }, [...NODES, ...CREDS]);
+				const res = runWithFakeNpm(dir, [
+					description('fixture-nodes-tallyfy', ALL),
+					description('another-package', ALL),
+				]);
+				expect(res.status).toBe(2);
+				expect(res.stderr).toContain('described 2 package(s), expected exactly 1');
+			},
+			TIMEOUT_MS,
+		);
+
+		it(
+			'refuses an object whose one package carries no files array',
+			() => {
+				const dir = pkg({ nodes: NODES, credentials: CREDS }, [...NODES, ...CREDS]);
+				const res = runWithFakeNpm(dir, {
+					'fixture-nodes-tallyfy': { name: 'fixture-nodes-tallyfy', entryCount: ALL.length },
+				});
+				expect(res.status).toBe(2);
+				expect(res.stderr).toContain('no files array');
+			},
+			TIMEOUT_MS,
+		);
+
+		it(
+			'refuses an empty object',
+			() => {
+				const dir = pkg({ nodes: NODES, credentials: CREDS }, [...NODES, ...CREDS]);
+				const res = runWithFakeNpm(dir, {});
+				expect(res.status).toBe(2);
+				expect(res.stderr).toContain('described 0 package(s), expected exactly 1');
+			},
+			TIMEOUT_MS,
+		);
+	});
 });

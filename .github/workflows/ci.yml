@@ -224,6 +224,16 @@ jobs:
           node-version: 22
           cache: npm
 
+      # The same npm release.yml installs, at the same point (before `npm ci`), so the build and
+      # the pack check below run under the npm a release will use. Until tallyfy/n8n#52 this job
+      # ran the runner's bundled npm 10 while release.yml ran npm 12, whose `npm pack --json`
+      # output has a different shape, and the first place that difference showed was the v1.2.0
+      # release itself. test/scripts/npm-pin.test.ts fails if this pin and release.yml's differ.
+      - name: Install the npm version release.yml uses
+        run: |
+          npm install -g npm@12.0.2
+          npm -v
+
       - name: Install dependencies
         run: npm ci
 

@@ -273,12 +273,30 @@ one-off.
   The tag `v1.2.0` is pushed only after that PR's independent review, and pushing it is the
   publish. Until `npm view n8n-nodes-tallyfy version` reads `1.2.0`, the paragraph above about
   `main` being ahead of the published version still describes the live state.
+
+  **Reading of 2026-10-23, later the same day: 1.2.0 was tagged and never published, and the next
+  version is 1.2.1.** PR #54 merged as `457830f` and the tag `v1.2.0` started Release run
+  `39905616620`, which failed at the pack contents check with "no files array" and skipped the
+  publish; `npm view n8n-nodes-tallyfy version` still read `1.1.3`. The cause was the npm the
+  workflow installed (see the third trap below). The owner decided the same day to release as
+  1.2.1 and leave the `v1.2.0` tag as the record of the failed run, so never delete or move it,
+  and never reuse 1.2.0. The release PR for #52 fixes the check, pins npm, and bumps to 1.2.1.
 - ⚠️ **Two traps, both measured rather than theorised.** (1) `actions/setup-node` must NOT set
   `registry-url` here. With it, setup-node writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
   into a temp `.npmrc`; with no token that expands to empty, npm treats auth as configured, **skips
   the OIDC exchange** and fails `ENEEDAUTH`. Caught by Cursor Bugbot on PR #16 before it shipped.
   (2) A failed release run still writes a permanent public provenance record (see above), so a tag
   push is never a safe experiment.
+  (3) **Added 2026-10-23 (#52): the npm a release runs must be the npm CI runs.** `release.yml`
+  used to install `npm@latest`, while CI ran the runner's npm 10, so every release ran an npm no
+  pull request had. npm 12 prints `npm pack --dry-run --json` as an object keyed by package name
+  where npm 10 prints a one-element array (measured on this package: 10.9.9 array, 12.0.2 and
+  12.2.1 object), and `scripts/check-pack-contents.sh` read only the array, so the v1.2.0 release
+  stopped there unpublished. The script now reads both shapes. `release.yml` pins npm 12.0.2,
+  the version that published 1.1.3 through OIDC, and `ci.yml`'s `build` job installs the same
+  version before `npm ci`. `test/scripts/npm-pin.test.ts` fails if the pins differ or the release
+  one is not exact, so change both together. npm 12 needs Node `^22.22.2 || ^24.15.0 || >=26`;
+  to run it on a Mac with another Node, use a checksum-verified Node 22 from nodejs.org.
 - **What is on npm**: `n8n-nodes-tallyfy@1.1.2`, published 2026-08-08 by CI with SLSA provenance —
   the first release this workflow has ever produced. Verify with
   `curl -s https://registry.npmjs.org/-/npm/v1/attestations/n8n-nodes-tallyfy@1.1.2 | jq '[.attestations[].predicateType]'`.
