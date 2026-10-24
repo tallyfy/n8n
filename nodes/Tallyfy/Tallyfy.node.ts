@@ -1586,7 +1586,7 @@ export class Tallyfy implements INodeType {
 						operation: ['updateValue'],
 					},
 				},
-				description: 'The ID of the STORED form-field value (CaptureValue ID) to update, NOT the field-definition ID. A run-level field only gains a CaptureValue once a value has been stored on it, so updating a never-filled run-level field currently fails server-side (api-v2 #9: PUT /form-field/value resolves the value by CaptureValue ID with no null-guard and no create-if-missing). For launch-time Kick-off values use the process:launch Kick-off Values collection instead.',
+				description: 'The ID of the STORED form-field value (CaptureValue ID) to update, NOT the field-definition ID. A run-level field only gains a CaptureValue once a value has been stored on it, so a never-filled run-level field cannot be set here: Tallyfy answers 422 because no stored value matches the ID (tallyfy/api-v2 #5010). For launch-time Kick-off values use the process:launch Kick-off Values collection instead.',
 			},
 			{
 				displayName: 'Field Type',
@@ -4376,14 +4376,15 @@ export class Tallyfy implements INodeType {
 					// asymmetric by design: dropdown takes an {id, text} pair, radio takes bare text.
 					//
 					// PRECONDITION (issue #9): `formFieldId` is the CaptureValue ID of an EXISTING
-					// stored value. The member endpoint (PUT /form-field/value) resolves it via
-					// `CaptureValue::find($id)` in api-v2 UpdateFormFieldValueRequest::postValidate()
-					// (then reads `$capture->capture`) and in FormFieldService::updateValue() with no
-					// null-guard and no create-if-missing, so setting a value on a run-level field that
-					// has no CaptureValue yet returns HTTP 500 "Attempt to read property `capture` on
-					// null". The request shape this node builds is correct; the run-level fix belongs in
-					// api-v2 (mirror the guest path's storeOrUpdateFields create-or-update). Tracked by a
-					// live tripwire in test/live/Tallyfy.live.test.ts.
+					// stored value. The member endpoint (PUT /form-field/value) looks the value up by
+					// that id in api-v2 UpdateFormFieldValueRequest::postValidate() and has no
+					// create-if-missing, so a run-level field that has never been filled cannot be set
+					// through it. Production answers that with HTTP 422 "No form field value matches
+					// this id." (api-v2 commit 77f046a70, 2026-09-17); before that commit it was a 500,
+					// "Attempt to read property `capture` on null". The request shape this node builds
+					// is correct; the run-level fix belongs in api-v2 (tallyfy/api-v2 #5010: mirror the
+					// guest path's storeOrUpdateFields create-or-update). Tracked by a live tripwire in
+					// test/live/Tallyfy.live.test.ts.
 					if (operation === 'updateValue') {
 						const asGuest = this.getNodeParameter('asGuest', i) as boolean;
 						const formFieldId = this.getNodeParameter('formFieldId', i) as string;

@@ -1,5 +1,5 @@
-import type { INodeExecutionData, IWebhookResponseData } from 'n8n-workflow';
-import { NodeApiError, NodeOperationError } from 'n8n-workflow';
+import type { INodeExecutionData, INodeParameters, IWebhookResponseData } from 'n8n-workflow';
+import { NodeApiError, NodeHelpers, NodeOperationError } from 'n8n-workflow';
 import { TallyfyTrigger } from '../../nodes/TallyfyTrigger/TallyfyTrigger.node';
 import { createContextMock, requestAt } from '../helpers/mocks';
 
@@ -274,5 +274,215 @@ describe('TallyfyTrigger - lifecycle errors are logged or wrapped (#4)', () => {
 			light: 'file:../../icons/tallyfy.svg',
 			dark: 'file:../../icons/tallyfy.svg',
 		});
+	});
+});
+
+// #59 (owner decision 2026-10-23): Instant is the default only for a trigger created on node
+// version 2. These resolve the node's parameters with n8n-workflow's own getNodeParameters, the
+// function n8n runs to fill in defaults when it loads a workflow and to strip them when it saves
+// one, so they show what n8n itself does with each version, not what the description says.
+describe('TallyfyTrigger - node versions and the Mode default (#59)', () => {
+	const description = new TallyfyTrigger().description;
+	const ALL_EVENTS = [
+		'process.launched',
+		'process.completed',
+		'task.completed',
+		'task.assigned',
+		'task.comment_added',
+		'task.issue_raised',
+		'task.issue_resolved',
+	];
+
+	// What a node of this version runs with, after n8n fills in every default.
+	function loaded(typeVersion: number, stored: INodeParameters = {}): INodeParameters {
+		const params = NodeHelpers.getNodeParameters(
+			description.properties,
+			stored,
+			true,
+			false,
+			{ typeVersion },
+			description,
+		);
+		expect(params).not.toBeNull();
+		return params as INodeParameters;
+	}
+
+	// What n8n writes to the saved workflow: only the values that differ from the defaults.
+	function saved(typeVersion: number, values: INodeParameters): INodeParameters {
+		const params = NodeHelpers.getNodeParameters(
+			description.properties,
+			values,
+			false,
+			false,
+			{ typeVersion },
+			description,
+		);
+		expect(params).not.toBeNull();
+		return params as INodeParameters;
+	}
+
+	it('offers versions 1 and 2, and n8n creates a new trigger on version 2', () => {
+		expect(description.version).toEqual([1, 2]);
+		expect(description.defaultVersion).toBe(2);
+	});
+
+	it('version 1 still defaults to Polling and shows the polling fields', () => {
+		const params = loaded(1);
+		expect(params.mode).toBe('polling');
+		expect(params.event).toBe('processLaunched');
+		expect(params.events).toBeUndefined();
+	});
+
+	it('version 2 defaults to Instant and shows the webhook events', () => {
+		const params = loaded(2);
+		expect(params.mode).toBe('webhook');
+		expect(params.events).toEqual(ALL_EVENTS);
+		expect(params.event).toBeUndefined();
+	});
+
+	it('a trigger saved on Polling under version 1 stores no mode, and still loads as Polling', () => {
+		// This is why version 1's default could not change: n8n stores nothing for a value that
+		// equals the default, so the saved workflow cannot say it chose Polling.
+		const stored = saved(1, { mode: 'polling', event: 'taskCompleted', limit: 50 });
+		expect(stored).toEqual({ event: 'taskCompleted' });
+		expect(loaded(1, stored).mode).toBe('polling');
+	});
+
+	it('a mode someone picked is stored and kept on either version', () => {
+		const v1Instant = saved(1, { mode: 'webhook' });
+		expect(v1Instant.mode).toBe('webhook');
+		expect(loaded(1, v1Instant).mode).toBe('webhook');
+
+		const v2Polling = saved(2, { mode: 'polling' });
+		expect(v2Polling.mode).toBe('polling');
+		expect(loaded(2, v2Polling).mode).toBe('polling');
+	});
+
+	it('the two Mode definitions differ only in their default and the version they show for', () => {
+		const modes = description.properties.filter((p) => p.name === 'mode');
+		expect(modes).toHaveLength(2);
+		const strip = (mode: (typeof modes)[number]) => {
+			const copy: Record<string, unknown> = { ...mode };
+			delete copy.default;
+			delete copy.displayOptions;
+			return copy;
+		};
+		expect(strip(modes[0])).toEqual(strip(modes[1]));
+		expect(modes.map((m) => m.default)).toEqual(['polling', 'webhook']);
+	});
+
+	it('no Mode description says the webhook backend is still rolling out', () => {
+		const text = JSON.stringify(description.properties.filter((p) => p.name === 'mode'));
+		expect(text).toMatch(/organization admin/);
+		expect(text).not.toMatch(/rolling/i);
+	});
+
+	// If n8n ever hands the node no mode at all, the fallback must match the version's default.
+	it('with no mode at all, a version 1 trigger polls and never subscribes', async () => {
+		const { ctx, httpMock } = createContextMock({
+			triggerStyle: true,
+			typeVersion: 1,
+			mode: 'trigger',
+			params: { event: 'processLaunched', limit: 50 },
+			webhookUrl: 'https://n8n.example.com/webhook/abc',
+			httpResponses: [{ data: [{ id: '1' }] }],
+		});
+		const trigger = new TallyfyTrigger();
+		expect(await trigger.webhookMethods.default.create.call(ctx)).toBe(true);
+		expect(httpMock).not.toHaveBeenCalled();
+		expect(await trigger.poll.call(ctx)).toBeNull();
+		expect(httpMock).toHaveBeenCalledTimes(1);
+		expect(requestAt(httpMock, 0).url).toBe(`${BASE}/organizations/${ORG}/runs`);
+	});
+
+	it('with no mode at all, a version 2 trigger subscribes and never polls', async () => {
+		const { ctx, httpMock, staticData } = createContextMock({
+			triggerStyle: true,
+			typeVersion: 2,
+			mode: 'trigger',
+			params: {},
+			webhookUrl: 'https://n8n.example.com/webhook/abc',
+			httpResponses: [{ data: { id: 'USER1' } }, { data: { id: 'WATCH2' } }],
+		});
+		const trigger = new TallyfyTrigger();
+		expect(await trigger.poll.call(ctx)).toBeNull();
+		expect(httpMock).not.toHaveBeenCalled();
+		expect(await trigger.webhookMethods.default.create.call(ctx)).toBe(true);
+		expect(requestAt(httpMock, 1).url).toBe(`${BASE}/organizations/${ORG}/users/USER1/add-watcher`);
+		expect(staticData.watcherId).toBe('WATCH2');
+	});
+});
+
+// #59: api-v2 refuses an organization-wide watcher with more than one 403, and only one of them is
+// about admin rights (WatchersAccess on api-v2 production). The others reach the user as Tallyfy's
+// own sentence. Each body below is the exact text production sends.
+describe('TallyfyTrigger - 403s on subscribe say what Tallyfy said (#59)', () => {
+	const NODE = {
+		id: 'test-node',
+		name: 'Tallyfy Trigger',
+		type: 'n8n-nodes-tallyfy.tallyfyTrigger',
+		typeVersion: 2,
+		position: [0, 0] as [number, number],
+		parameters: {},
+	};
+	const NOT_FOUND = 'The object you want to watch does not exist.';
+	const ADMIN = 'Access denied: organization-wide watchers require an admin role.';
+
+	// The error n8n's httpRequestWithAuthentication throws for a non-2xx answer: a NodeApiError
+	// built from the HTTP client's error, which it keeps as `cause`. api-v2 sends these 403
+	// bodies as plain text, so `data` is the bare sentence.
+	function forbidden(data: unknown): NodeApiError {
+		const httpError = Object.assign(new Error('Request failed with status code 403'), {
+			isAxiosError: true,
+			response: { status: 403, data },
+		});
+		return new NodeApiError(NODE, httpError as never);
+	}
+
+	async function createFailure(thrown: unknown): Promise<NodeOperationError> {
+		const { ctx } = createContextMock({
+			triggerStyle: true,
+			typeVersion: 2,
+			params: { mode: 'webhook' },
+			webhookUrl: 'https://n8n.example.com/webhook/abc',
+			httpResponses: [{ data: { id: 'USER1' } }, { __throw: thrown }],
+		});
+		const error = await new TallyfyTrigger()
+			.webhookMethods.default.create.call(ctx)
+			.then(() => undefined)
+			.catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(NodeOperationError);
+		return error as NodeOperationError;
+	}
+
+	it('passes "the object you want to watch does not exist" through, with no word about admins', async () => {
+		const error = await createFailure(forbidden(NOT_FOUND));
+		expect(error.message).toBe(`Tallyfy refused the webhook subscription: ${NOT_FOUND}`);
+		expect(error.message).not.toMatch(/admin/i);
+		expect(error.description).toMatch(/Organization ID/);
+	});
+
+	it('reads the sentence from a JSON body too', async () => {
+		const error = await createFailure(forbidden({ message: 'Watcher does not exist' }));
+		expect(error.message).toBe('Tallyfy refused the webhook subscription: Watcher does not exist');
+	});
+
+	it('reads the sentence when the transport error itself carries the body', async () => {
+		const raw = Object.assign(new Error('Tallyfy API 403'), { statusCode: 403, response: NOT_FOUND });
+		const error = await createFailure(raw);
+		expect(error.message).toBe(`Tallyfy refused the webhook subscription: ${NOT_FOUND}`);
+	});
+
+	it('keeps the admin message for the admin refusal', async () => {
+		const error = await createFailure(forbidden(ADMIN));
+		expect(error.message).toBe(
+			'Instant webhook triggers require a Tallyfy organization admin; switch Mode to Polling.',
+		);
+	});
+
+	it('keeps the admin message when the 403 has no readable body', async () => {
+		const html = '<html><body><h1>403 Forbidden</h1></body></html>';
+		expect((await createFailure(forbidden(html))).message).toMatch(/organization admin/);
+		expect((await createFailure(forbidden(''))).message).toMatch(/organization admin/);
 	});
 });

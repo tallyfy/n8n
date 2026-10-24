@@ -49,6 +49,38 @@ its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-23
+
+### Changed
+- **A newly added Tallyfy Trigger starts in Instant mode.** The trigger has a node version 2, and
+  n8n gives a trigger you add the newest version. On version 2 Mode defaults to **Instant
+  (Webhook)**; on version 1 it stays **Polling**. Every trigger saved before 1.4.0 stays on version
+  1 and keeps the mode it had. That is why the default moved in a new version: n8n stores no mode
+  for a trigger left on its default, so changing version 1's default would have switched every
+  such trigger to Instant on upgrade. The organization webhook backend Instant needs (api-v2
+  #9563) is on Tallyfy production. Instant needs a Tallyfy organization admin's credential and an
+  n8n URL that Tallyfy can reach; without either, choose Polling. (#59, part of #3)
+- The Mode descriptions and the README no longer say that backend is rolling out. (#59, part of
+  #3)
+- For contributors, nothing here ships in the package. The live suite's #9 tripwire now expects
+  the 422 that staging answers, and still fails if the call succeeds or the old 500 comes back.
+  The live suite reads staging credentials from `~/GitHub/tallyfy_staging_credentials.json`
+  unless `TALLYFY_STAGING_CREDS` names another file, and no longer falls back to
+  `~/Documents/GitHub`. (#59, part of #9)
+
+### Fixed
+- **A webhook subscription Tallyfy refuses for a reason other than admin rights now says why.**
+  Every 403 used to read "Instant webhook triggers require a Tallyfy organization admin". Tallyfy
+  also answers 403, with "The object you want to watch does not exist.", when the organization in
+  the credential no longer resolves. That sentence now reaches you, with a pointer to the
+  credential's Organization ID. The admin refusal, and a 403 with no readable body, still get the
+  admin message. (#59, part of #3)
+- **Form Field Update Value's help text says what Tallyfy does today.** For a run-level field that
+  has never been filled, Tallyfy production answers 422 because no stored value matches the ID
+  (api-v2 commit 77f046a70, 2026-09-17), where it used to answer 500. The text cited
+  "api-v2 #9", which is this repository's issue number; it now cites tallyfy/api-v2 #5010.
+  Setting such a field still does not work. (#59, part of #9)
+
 ## [1.3.0] - 2026-10-23
 
 ### Added

@@ -94,6 +94,44 @@ function isForbidden(error: unknown): boolean {
 	return codes.some((code) => code !== undefined && String(code) === '403');
 }
 
+// Mode's default depends on the node version (#59, owner decision 2026-10-23). n8n stores a
+// parameter only when it differs from the default, so a trigger saved on Polling under version 1
+// has no `mode` stored at all. Changing version 1's default would therefore move every one of
+// those triggers to Instant on upgrade. Version 1 keeps Polling; version 2, which n8n gives a
+// newly added node, starts on Instant. The runtime fallbacks below read the same rule, so they
+// never disagree with the description.
+function defaultMode(typeVersion: number | undefined): string {
+	return typeof typeVersion === 'number' && typeVersion >= 2 ? 'webhook' : 'polling';
+}
+
+// The text Tallyfy sent with a failed request. n8n wraps the HTTP client's error in a NodeApiError
+// and keeps the original as `cause`, so the body is at cause.response.data. api-v2 answers the
+// add-watcher 403s with a bare sentence (text/html), which NodeApiError does not lift into its
+// message, so read the body itself. Returns '' when there is no short, readable body, such as an
+// HTML error page from a proxy.
+function apiErrorText(error: unknown): string {
+	if (!error || typeof error !== 'object') return '';
+	const e = error as IDataObject;
+	const cause = (e.cause as IDataObject) || {};
+	const causeResponse = (cause.response as IDataObject) || {};
+	const response = e.response;
+	const responseObject = response && typeof response === 'object' ? (response as IDataObject) : {};
+	const context = (e.context as IDataObject) || {};
+	const candidates: unknown[] = [causeResponse.data, responseObject.data, response, context.data];
+	for (const candidate of candidates) {
+		let text = '';
+		if (typeof candidate === 'string') {
+			text = candidate;
+		} else if (candidate && typeof candidate === 'object') {
+			const message = (candidate as IDataObject).message;
+			if (typeof message === 'string') text = message;
+		}
+		text = text.trim();
+		if (text && text.length <= 300 && !text.startsWith('<')) return text;
+	}
+	return '';
+}
+
 export class TallyfyTrigger implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Tallyfy Trigger',
@@ -102,7 +140,9 @@ export class TallyfyTrigger implements INodeType {
 		// light and dark canvases alike, so there is no separate dark artwork to point at.
 		icon: { light: 'file:../../icons/tallyfy.svg', dark: 'file:../../icons/tallyfy.svg' },
 		group: ['trigger'],
-		version: 1,
+		// Version 2 changes one thing: Mode defaults to Instant instead of Polling (#59).
+		version: [1, 2],
+		defaultVersion: 2,
 		subtitle: '={{$parameter["mode"] === "webhook" ? "Instant webhook" : $parameter["event"]}}',
 		description: 'Starts a workflow on Tallyfy events via an instant webhook subscription, or by polling as a fallback',
 		defaults: {
@@ -126,25 +166,58 @@ export class TallyfyTrigger implements INodeType {
 			},
 		],
 		properties: [
+			// Mode is defined once per node version, the same parameter name gated by `@version`,
+			// which is how n8n's own nodes change a default without touching saved workflows. The
+			// two copies differ only in `default`; see defaultMode() for why (#59).
 			{
 				displayName: 'Mode',
 				name: 'mode',
 				type: 'options',
 				noDataExpression: true,
+				displayOptions: {
+					show: {
+						'@version': [1],
+					},
+				},
 				options: [
 					{
 						name: 'Instant (Webhook)',
 						value: 'webhook',
-						description: 'Tallyfy pushes events to n8n in real time. Requires an organization admin to subscribe and the Tallyfy organization-webhook backend to be enabled.',
+						description: 'Tallyfy sends each event to n8n as it happens. Needs a Tallyfy organization admin\'s credential and an n8n URL that Tallyfy can reach.',
 					},
 					{
 						name: 'Polling',
 						value: 'polling',
-						description: 'Poll Tallyfy periodically for new items. Works for non-admins and without a public URL.',
+						description: 'Checks Tallyfy for new items on a schedule. Works for any member and needs no public URL.',
 					},
 				],
 				default: 'polling',
-				description: 'How this trigger receives Tallyfy events. Polling works everywhere today. Instant webhooks deliver in real time but need an org-admin token AND the Tallyfy organization-webhook backend (rolling out). Switch to Instant once your organization has it enabled.',
+				description: 'How this trigger receives Tallyfy events. Instant needs a Tallyfy organization admin\'s credential and an n8n URL that Tallyfy can reach. Polling works for any member and needs no public URL.',
+			},
+			{
+				displayName: 'Mode',
+				name: 'mode',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: {
+					show: {
+						'@version': [{ _cnd: { gte: 2 } }],
+					},
+				},
+				options: [
+					{
+						name: 'Instant (Webhook)',
+						value: 'webhook',
+						description: 'Tallyfy sends each event to n8n as it happens. Needs a Tallyfy organization admin\'s credential and an n8n URL that Tallyfy can reach.',
+					},
+					{
+						name: 'Polling',
+						value: 'polling',
+						description: 'Checks Tallyfy for new items on a schedule. Works for any member and needs no public URL.',
+					},
+				],
+				default: 'webhook',
+				description: 'How this trigger receives Tallyfy events. Instant needs a Tallyfy organization admin\'s credential and an n8n URL that Tallyfy can reach. Polling works for any member and needs no public URL.',
 			},
 
 			// ===== INSTANT WEBHOOK MODE =====
@@ -303,7 +376,7 @@ export class TallyfyTrigger implements INodeType {
 	webhookMethods = {
 		default: {
 			async checkExists(this: IHookFunctions): Promise<boolean> {
-				const mode = this.getNodeParameter('mode', 'webhook') as string;
+				const mode = this.getNodeParameter('mode', defaultMode(this.getNode().typeVersion)) as string;
 				if (mode !== 'webhook') return true; // polling mode: nothing subscribed
 
 				const credentials = await this.getCredentials('tallyfyApi');
@@ -345,7 +418,7 @@ export class TallyfyTrigger implements INodeType {
 			},
 
 			async create(this: IHookFunctions): Promise<boolean> {
-				const mode = this.getNodeParameter('mode', 'webhook') as string;
+				const mode = this.getNodeParameter('mode', defaultMode(this.getNode().typeVersion)) as string;
 				if (mode !== 'webhook') return true; // polling mode: no subscription
 
 				const credentials = await this.getCredentials('tallyfyApi');
@@ -391,6 +464,23 @@ export class TallyfyTrigger implements INodeType {
 					return true;
 				} catch (error) {
 					if (isForbidden(error)) {
+						// api-v2 refuses an organization-wide watcher with more than one 403. Only one of
+						// them is about admin rights. Any other, such as "The object you want to watch does
+						// not exist." when the organization ID no longer resolves, reaches the user in
+						// Tallyfy's own words, so nobody goes looking for a permission that is fine. A 403
+						// with no readable body keeps the admin message, as before (#59).
+						const reason = apiErrorText(error);
+						if (reason && !/admin/i.test(reason)) {
+							throw new NodeOperationError(
+								this.getNode(),
+								`Tallyfy refused the webhook subscription: ${reason}`,
+								{
+									level: 'warning',
+									description:
+										'Check the Organization ID in your Tallyfy credential. If your organization changed, reconnect the credential, or switch Mode to Polling.',
+								},
+							);
+						}
 						throw new NodeOperationError(
 							this.getNode(),
 							'Instant webhook triggers require a Tallyfy organization admin; switch Mode to Polling.',
@@ -407,7 +497,7 @@ export class TallyfyTrigger implements INodeType {
 			},
 
 			async delete(this: IHookFunctions): Promise<boolean> {
-				const mode = this.getNodeParameter('mode', 'webhook') as string;
+				const mode = this.getNodeParameter('mode', defaultMode(this.getNode().typeVersion)) as string;
 				if (mode !== 'webhook') return true; // polling mode: nothing to remove
 
 				const credentials = await this.getCredentials('tallyfyApi');
@@ -455,7 +545,7 @@ export class TallyfyTrigger implements INodeType {
 
 	async poll(this: IPollFunctions): Promise<INodeExecutionData[][] | null> {
 		// Only poll in polling mode; in webhook mode Tallyfy pushes events instead.
-		const mode = this.getNodeParameter('mode', 'webhook') as string;
+		const mode = this.getNodeParameter('mode', defaultMode(this.getNode().typeVersion)) as string;
 		if (mode !== 'polling') return null;
 
 		const credentials = await this.getCredentials('tallyfyApi');

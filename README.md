@@ -103,10 +103,10 @@ An entry that matches no kickoff field fails the execution instead of being sile
 
 ### Tallyfy Trigger node
 
-The **Tallyfy Trigger** node starts a workflow when something happens in Tallyfy. It has two modes:
+The **Tallyfy Trigger** node starts a workflow when something happens in Tallyfy. It has two modes. From package version 1.4.0, a newly added trigger starts in **Instant (Webhook)** mode. A trigger saved before then keeps the mode it had, because n8n keeps it on node version 1, where **Polling** is the default.
 
-- **Polling** (default, works for everyone): the node checks Tallyfy periodically for **New Process Launched** (optionally filtered to one template), **Task Completed**, **Task Assigned To Me**, and **Comment Or Issue Added** (scoped to a single process or to all processes of a template). No public URL or admin rights are needed, and it de-duplicates so activation does not replay the backlog.
-- **Instant (Webhook)**: Tallyfy pushes events to n8n in real time. On activation the node registers an organization-scope webhook watcher via the Tallyfy watcher API, and removes it on deactivation. You can select any of **Process Launched**, **Process Completed**, **Task Completed**, **Task Assigned**, **Comment Added**, **Issue Raised**, and **Issue Resolved**. This mode needs an organization-admin token and the Tallyfy organization-webhook backend (rolling out); if your organization does not have it enabled yet, use Polling.
+- **Polling** (works for any member): the node checks Tallyfy periodically for **New Process Launched** (optionally filtered to one template), **Task Completed**, **Task Assigned To Me**, and **Comment Or Issue Added** (scoped to a single process or to all processes of a template). No public URL or admin rights are needed, and it de-duplicates so activation does not replay the backlog.
+- **Instant (Webhook)**: Tallyfy pushes events to n8n in real time. On activation the node registers an organization-scope webhook watcher via the Tallyfy watcher API, and removes it on deactivation. You can select any of **Process Launched**, **Process Completed**, **Task Completed**, **Task Assigned**, **Comment Added**, **Issue Raised**, and **Issue Resolved**. This mode needs a Tallyfy organization admin's credential and an n8n URL that Tallyfy can reach. Without either, switch Mode to Polling.
 
 ## Credentials
 
@@ -162,7 +162,7 @@ Keep user lists synchronized:
 Start a workflow when work happens in Tallyfy:
 
 1. Add a **Tallyfy Trigger** node as the first node
-2. Choose **Polling** (works everywhere) or **Instant (Webhook)** if your org has the webhook backend
+2. Keep **Instant (Webhook)** if your credential belongs to a Tallyfy organization admin and Tallyfy can reach your n8n URL, or choose **Polling**, which works for any member
 3. Select the events to listen for (for example, Task Completed)
 4. Wire the trigger output into downstream nodes
 
@@ -215,7 +215,7 @@ The server acts as the user who owns the token, with that user's permissions in 
 - Built with [`@n8n/node-cli`](https://www.npmjs.com/package/@n8n/node-cli), n8n's own tooling for community nodes, and linted with n8n's community node rules in strict mode. Tested against `n8n-workflow` 2.43.
 - No runtime dependencies.
 
-**Version note**: this package is on the 1.3.x line. For what each release contains, see [CHANGELOG.md](CHANGELOG.md). For the version you would install right now, ask npm rather than this page:
+**Version note**: this package is on the 1.4.x line. For what each release contains, see [CHANGELOG.md](CHANGELOG.md). For the version you would install right now, ask npm rather than this page:
 
 ```bash
 npm view n8n-nodes-tallyfy version

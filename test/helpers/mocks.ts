@@ -58,6 +58,8 @@ export interface ContextMockConfig {
 	webhookUrl?: string | undefined;
 	/** Inbound webhook body for the instant-webhook handler. */
 	bodyData?: IDataObject;
+	/** The node's typeVersion, as n8n reports it through getNode(). Defaults to 1. */
+	typeVersion?: number;
 }
 
 export interface ContextMock {
@@ -125,7 +127,7 @@ export function createContextMock(config: ContextMockConfig = {}): ContextMock {
 		id: 'test-node',
 		name: 'Tallyfy',
 		type: 'n8n-nodes-tallyfy.tallyfy',
-		typeVersion: 1,
+		typeVersion: config.typeVersion ?? 1,
 		position: [0, 0] as [number, number],
 		parameters: {},
 	};
