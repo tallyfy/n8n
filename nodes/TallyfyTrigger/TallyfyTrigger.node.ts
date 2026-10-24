@@ -143,7 +143,10 @@ export class TallyfyTrigger implements INodeType {
 		// Version 2 changes one thing: Mode defaults to Instant instead of Polling (#59).
 		version: [1, 2],
 		defaultVersion: 2,
-		subtitle: '={{$parameter["mode"] === "webhook" ? "Instant webhook" : $parameter["event"]}}',
+		// In Polling the canvas names the event in words; it showed the raw value, such as
+		// "processLaunched", until 1.4.1. A test checks every Event option reads as its own name.
+		subtitle:
+			'={{$parameter["mode"] === "webhook" ? "Instant webhook" : $parameter["event"] === "processLaunched" ? "Polling: New Process Launched" : $parameter["event"] === "taskCompleted" ? "Polling: Task Completed" : $parameter["event"] === "taskAssigned" ? "Polling: Task Assigned To Me" : $parameter["event"] === "commentAdded" ? "Polling: Comment Or Issue Added" : "Polling"}}',
 		description: 'Starts a workflow on Tallyfy events via an instant webhook subscription, or by polling as a fallback',
 		defaults: {
 			name: 'Tallyfy Trigger',
@@ -157,15 +160,37 @@ export class TallyfyTrigger implements INodeType {
 				required: true,
 			},
 		],
+		// The webhook exists only in Instant mode. n8n reads `polling: true` and `webhooks` from
+		// the node type, not from the node's settings, so with a fixed method every Tallyfy
+		// Trigger registered a webhook, and in Polling mode Fetch Test Event waited for a delivery
+		// that never came instead of polling. n8n skips a webhook whose method resolves empty
+		// (WebhookService.getNodeWebhooks, n8n 1.85.0 and 2.43.5), so in Polling there is none:
+		// a test run polls, and activation subscribes nothing (#61).
 		webhooks: [
 			{
 				name: 'default',
-				httpMethod: 'POST',
+				httpMethod: '={{$parameter["mode"] === "webhook" ? "POST" : ""}}',
 				responseMode: 'onReceived',
 				path: 'webhook',
 			},
 		],
 		properties: [
+			// n8n puts its own Poll Times property first on every polling node type, with no display
+			// options, and reads it whenever it activates a workflow holding this node, Instant
+			// included. A Poll Times hidden in Instant mode would be dropped from the node's
+			// parameters, and activation would stop with "Could not get parameter". So it stays, and
+			// this notice under it says it does nothing in Instant mode (#61).
+			{
+				displayName: 'Poll Times only applies in Polling mode. In Instant mode Tallyfy sends each event as it happens, and this trigger does not poll.',
+				name: 'instantModeNotice',
+				type: 'notice',
+				default: '',
+				displayOptions: {
+					show: {
+						mode: ['webhook'],
+					},
+				},
+			},
 			// Mode is defined once per node version, the same parameter name gated by `@version`,
 			// which is how n8n's own nodes change a default without touching saved workflows. The
 			// two copies differ only in `default`; see defaultMode() for why (#59).

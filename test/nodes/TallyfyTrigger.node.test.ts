@@ -1,5 +1,12 @@
-import type { INodeExecutionData, INodeParameters, IWebhookResponseData } from 'n8n-workflow';
-import { NodeApiError, NodeHelpers, NodeOperationError } from 'n8n-workflow';
+import type {
+	INode,
+	INodeExecutionData,
+	INodeParameters,
+	INodeProperties,
+	INodeTypes,
+	IWebhookResponseData,
+} from 'n8n-workflow';
+import { NodeApiError, NodeHelpers, NodeOperationError, Workflow, cronNodeOptions } from 'n8n-workflow';
 import { TallyfyTrigger } from '../../nodes/TallyfyTrigger/TallyfyTrigger.node';
 import { createContextMock, requestAt } from '../helpers/mocks';
 
@@ -484,5 +491,144 @@ describe('TallyfyTrigger - 403s on subscribe say what Tallyfy said (#59)', () =>
 		const html = '<html><body><h1>403 Forbidden</h1></body></html>';
 		expect((await createFailure(forbidden(html))).message).toMatch(/organization admin/);
 		expect((await createFailure(forbidden(''))).message).toMatch(/organization admin/);
+	});
+});
+
+// #61. These evaluate the trigger's own expressions the way n8n does: a real n8n-workflow Workflow,
+// whose constructor fills in each version's defaults, resolving them with
+// workflow.expression.getSimpleParameterValue, the call n8n's WebhookService.getNodeWebhooks uses
+// for a webhook's method and the editor uses for the canvas subtitle.
+describe('TallyfyTrigger - what n8n resolves for each Mode and version (#61)', () => {
+	const NODE_NAME = 'Tallyfy Trigger';
+
+	function resolve(typeVersion: number, parameters: INodeParameters, value: unknown, fallback?: unknown): unknown {
+		const trigger = new TallyfyTrigger();
+		const nodeTypes = {
+			getByName: () => trigger,
+			getByNameAndVersion: () => trigger,
+			getKnownTypes: () => ({}),
+		} as unknown as INodeTypes;
+		const node: INode = {
+			id: 'node-1',
+			name: NODE_NAME,
+			type: 'n8n-nodes-tallyfy.tallyfyTrigger',
+			typeVersion,
+			position: [0, 0],
+			parameters,
+		};
+		const workflow = new Workflow({ id: 'wf-1', nodes: [node], connections: {}, active: false, nodeTypes });
+		const filled = workflow.getNode(NODE_NAME);
+		expect(filled).not.toBeNull();
+		return workflow.expression.getSimpleParameterValue(
+			filled!,
+			value as string,
+			'internal',
+			{},
+			undefined,
+			fallback as string,
+		);
+	}
+
+	const description = new TallyfyTrigger().description;
+	const httpMethod = description.webhooks![0].httpMethod;
+
+	// n8n splits the resolved method on commas and skips every empty entry, so an empty string means
+	// the node has no webhook (WebhookService.getNodeWebhooks in n8n 1.85.0 and 2.43.5).
+	const registeredMethods = (method: unknown) =>
+		String(method)
+			.split(',')
+			.filter((m) => m !== '')
+			.map((m) => m.trim());
+
+	it.each([
+		[1, {}, ''],
+		[1, { mode: 'polling' }, ''],
+		[1, { mode: 'webhook' }, 'POST'],
+		[2, {}, 'POST'],
+		[2, { mode: 'webhook' }, 'POST'],
+		[2, { mode: 'polling' }, ''],
+	])('version %s with %j resolves the webhook method to "%s"', (typeVersion, stored, expected) => {
+		const method = resolve(typeVersion, stored, httpMethod, 'GET');
+		expect(method).toBe(expected);
+		expect(registeredMethods(method)).toEqual(expected ? ['POST'] : []);
+	});
+
+	it('keeps the webhook path, so an Instant trigger registers where it did before', () => {
+		expect(description.webhooks).toHaveLength(1);
+		expect(description.webhooks![0]).toMatchObject({ name: 'default', path: 'webhook', responseMode: 'onReceived' });
+	});
+
+	const pollingEventOptions = () => {
+		const event = description.properties.find((p) => p.name === 'event');
+		expect(event?.options?.length).toBeGreaterThan(0);
+		return event!.options as unknown as Array<{ name: string; value: string }>;
+	};
+
+	it.each([1, 2])('on version %s the Polling subtitle reads as each Event option\'s name', (typeVersion) => {
+		for (const option of pollingEventOptions()) {
+			expect(resolve(typeVersion, { mode: 'polling', event: option.value }, description.subtitle)).toBe(
+				`Polling: ${option.name}`,
+			);
+		}
+	});
+
+	it('the subtitle follows each version\'s default Mode, and never shows a raw value', () => {
+		expect(resolve(1, {}, description.subtitle)).toBe('Polling: New Process Launched');
+		expect(resolve(2, {}, description.subtitle)).toBe('Instant webhook');
+		expect(resolve(1, { mode: 'webhook' }, description.subtitle)).toBe('Instant webhook');
+		expect(resolve(2, { mode: 'polling', event: 'taskAssigned' }, description.subtitle)).not.toMatch(/taskAssigned/);
+	});
+});
+
+// #61. n8n's loader puts its own Poll Times property first on every polling node type, with no
+// display options (applySpecialNodeParameters in n8n-core's directory loader), and activation reads
+// it for every node with a poll() method, Instant included, with no fallback. This copies that
+// property exactly, so the tests show what n8n does with it on this trigger.
+describe('TallyfyTrigger - Poll Times stays, and a notice says it does nothing in Instant (#61)', () => {
+	const description = new TallyfyTrigger().description;
+	const n8nPollTimes: INodeProperties = {
+		displayName: 'Poll Times',
+		name: 'pollTimes',
+		type: 'fixedCollection',
+		typeOptions: { multipleValues: true, multipleValueButtonText: 'Add Poll Time' },
+		default: { item: [{ mode: 'everyMinute' }] },
+		description: 'Time at which polling should occur',
+		placeholder: 'Add Poll Time',
+		options: cronNodeOptions,
+	};
+
+	function loaded(properties: INodeProperties[], typeVersion: number, stored: INodeParameters): INodeParameters {
+		const params = NodeHelpers.getNodeParameters(properties, stored, true, false, { typeVersion }, description);
+		expect(params).not.toBeNull();
+		return params as INodeParameters;
+	}
+
+	it('the trigger declares no Poll Times of its own, so n8n\'s stays the only one', () => {
+		expect(description.properties.filter((p) => p.name === 'pollTimes')).toHaveLength(0);
+	});
+
+	it.each([
+		[1, { mode: 'webhook' }],
+		[2, {}],
+	])('version %s in Instant (%j) still carries Poll Times, which activation reads', (typeVersion, stored) => {
+		const params = loaded([n8nPollTimes, ...description.properties], typeVersion, stored);
+		expect(params.mode).toBe('webhook');
+		expect(params.pollTimes).toEqual({ item: [{ mode: 'everyMinute' }] });
+	});
+
+	it('hiding Poll Times in Instant mode would drop it, which is why it is not hidden', () => {
+		const hidden: INodeProperties = { ...n8nPollTimes, displayOptions: { show: { mode: ['polling'] } } };
+		expect(loaded([hidden, ...description.properties], 2, {}).pollTimes).toBeUndefined();
+		expect(loaded([hidden, ...description.properties], 2, { mode: 'polling' }).pollTimes).toBeDefined();
+	});
+
+	it.each([
+		[1, {}, false],
+		[1, { mode: 'webhook' }, true],
+		[2, {}, true],
+		[2, { mode: 'polling' }, false],
+	])('version %s with %j shows the Instant notice: %s', (typeVersion, stored, shown) => {
+		const params = loaded(description.properties, typeVersion, stored);
+		expect('instantModeNotice' in params).toBe(shown);
 	});
 });
