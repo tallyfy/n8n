@@ -108,6 +108,8 @@ The **Tallyfy Trigger** node starts a workflow when something happens in Tallyfy
 - **Polling** (works for any member): the node checks Tallyfy periodically for **New Process Launched** (optionally filtered to one template), **Task Completed**, **Task Assigned To Me**, and **Comment Or Issue Added** (scoped to a single process or to all processes of a template). No public URL or admin rights are needed, and it de-duplicates so activation does not replay the backlog.
 - **Instant (Webhook)**: Tallyfy pushes events to n8n in real time. On activation the node registers an organization-scope webhook watcher via the Tallyfy watcher API, and removes it on deactivation. You can select any of **Process Launched**, **Process Completed**, **Task Completed**, **Task Assigned**, **Comment Added**, **Issue Raised**, and **Issue Resolved**. This mode needs a Tallyfy organization admin's credential and an n8n URL that Tallyfy can reach. Without either, switch Mode to Polling.
 
+**The template id in an Instant event is not the one the API takes.** In a webhook payload, `template.id` is the id of the template's version, and a Tallyfy API call made with it, such as Blueprint: Get, answers 404. Use the template id the API returns instead: for example, read the process with Process: Get using the payload's `process.id`, and take its `checklist_id`. This holds until Tallyfy changes the payload, which tallyfy/api-v2#11317 tracks.
+
 ## Credentials
 
 To use these nodes, create a **Tallyfy API** credential:
