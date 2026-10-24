@@ -49,6 +49,40 @@ its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-24
+
+### Fixed
+- **Fetch Test Event polls in Polling mode.** It used to sit on "Listening for test event" and
+  never call Tallyfy. The trigger declared its webhook for every node, whatever its Mode, and n8n
+  starts a test run of any node with a webhook by waiting for a delivery. The webhook's method is
+  now POST in Instant mode and empty in Polling, and n8n registers no webhook with an empty method,
+  so in Polling a test run polls and returns the newest items. An active Polling trigger no longer
+  registers an unused webhook either. Instant mode registers, subscribes and receives as before.
+  Both node versions, and version 1's default of Polling, are unchanged. (#61, part of #3)
+- **The canvas subtitle in Polling names the event in words**, such as "Polling: New Process
+  Launched", where it showed the raw value "processLaunched". (#61)
+- **Task Completed in Polling fires on completed tasks only.** It asked for `status=completed`,
+  which the API does not know and ignores, so each poll returned unfinished tasks too. Their ids
+  were marked seen, so when one of them was really completed later, the trigger never fired for
+  it. It now asks for `status=complete`, the API's own name, and sorts newest completions first
+  (`completed_newest`); without a sort the API pages by id, so most new completions were never on
+  the page polled. Measured on Tallyfy staging: `completed` and a made-up value both returned all
+  1,124 tasks, `complete` returned the 344 completed ones, and only the sorted first page held the
+  latest completion. (#61)
+- **Task Assigned To Me in Polling fires on the connected user's tasks only.** It sent
+  `assignee=me` to the organization's task list, which has no such filter, so it fired for every
+  new active task in the organization. It now reads the user's own list, `/me/tasks`, with
+  `status=active`, newest first. (#61)
+
+### Changed
+- **In Instant mode a notice under Poll Times says it does nothing there.** n8n adds Poll Times
+  to every polling trigger itself and reads it whenever it activates the workflow, Instant
+  included, so hiding it in Instant mode would stop an Instant trigger from activating with
+  "Could not get parameter". It stays, and the notice explains it. (#61)
+- The README says that `template.id` in an Instant event is the template version's id, which the
+  API answers with 404, and how to get the template id the API takes instead, until Tallyfy
+  changes the payload (tallyfy/api-v2 #11317). (#61)
+
 ## [1.4.0] - 2026-10-23
 
 ### Changed

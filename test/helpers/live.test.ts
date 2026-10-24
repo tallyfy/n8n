@@ -1,7 +1,7 @@
-/* eslint-disable @n8n/community-nodes/no-restricted-imports, @n8n/community-nodes/no-restricted-globals --
- * Those two rules guard code that runs inside n8n. This is a Jest test of the live suite's
- * credentials lookup, which reads the environment and the file system. It never ships in the npm
- * package, and n8n's community package scan does not lint test/. */
+/* eslint-disable @n8n/community-nodes/no-restricted-imports --
+ * That rule guards code that runs inside n8n. This is a Jest test of the live suite's credentials
+ * lookup, which reads the file system. It never ships in the npm package, and n8n's community
+ * package scan does not lint test/. */
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
