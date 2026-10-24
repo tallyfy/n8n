@@ -49,6 +49,25 @@ its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-24
+
+### Fixed
+- **Fetch Test Event polls in Polling mode.** It used to sit on "Listening for test event" and
+  never call Tallyfy. The trigger declared its webhook for every node, whatever its Mode, and n8n
+  starts a test run of any node with a webhook by waiting for a delivery. The webhook's method is
+  now POST in Instant mode and empty in Polling, and n8n registers no webhook with an empty method,
+  so in Polling a test run polls and returns the newest items. An active Polling trigger no longer
+  registers an unused webhook either. Instant mode registers, subscribes and receives as before.
+  Both node versions, and version 1's default of Polling, are unchanged. (#61, part of #3)
+- **The canvas subtitle in Polling names the event in words**, such as "Polling: New Process
+  Launched", where it showed the raw value "processLaunched". (#61)
+
+### Changed
+- **In Instant mode a notice under Poll Times says it does nothing there.** n8n adds Poll Times
+  to every polling trigger itself and reads it whenever it activates the workflow, Instant
+  included, so hiding it in Instant mode would stop an Instant trigger from activating with
+  "Could not get parameter". It stays, and the notice explains it. (#61)
+
 ## [1.4.0] - 2026-10-23
 
 ### Changed
