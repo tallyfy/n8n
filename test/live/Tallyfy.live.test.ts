@@ -164,6 +164,37 @@ d('Tallyfy live API', () => {
 			expect(rows.length).toBe(Math.min(12, total));
 		});
 
+		// tallyfy/work-queue#4260: List Steps made one request with no per_page, so the API's
+		// default page of 10 cut a longer template short. It must return all 12 of 12, in order.
+		it('List Steps returns every step of a 12 step template, in order', async () => {
+			const created = await rawApi('POST', `/organizations/${TEST_ORG}/checklists`, {
+				title: uniq('steps'),
+				type: 'procedure',
+			});
+			const bpId = (data(created) as IDataObject).id as string;
+			try {
+				for (let i = 1; i <= 12; i++) {
+					await rawApi('POST', `/organizations/${TEST_ORG}/checklists/${bpId}/steps`, {
+						checklist_id: bpId,
+						title: `step ${i}`,
+						step_type: 'task',
+						position: i,
+					});
+				}
+				// Control: one request with no per_page still stops at 10, so this test can fail.
+				const onePage = await rawApi('GET', `/organizations/${TEST_ORG}/checklists/${bpId}/steps`);
+				expect((data<IDataObject[]>(onePage) as IDataObject[]).length).toBe(10);
+
+				const res = await runLive({ resource: 'blueprint', operation: 'listSteps', blueprintId: bpId });
+				expect(res.out).toHaveLength(1);
+				const steps = (res.out[0].json as IDataObject).data as IDataObject[];
+				expect(steps.map((s) => s.position)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+				expect(res.captured[0].options.qs).toMatchObject({ per_page: 100, page: 1 });
+			} finally {
+				await rawApi('DELETE', `/organizations/${TEST_ORG}/checklists/${bpId}`).catch(() => undefined);
+			}
+		});
+
 		it('lists blueprints (getAll, limited) and returns an array', async () => {
 			const res = await runLive({
 				resource: 'blueprint',

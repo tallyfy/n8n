@@ -5374,6 +5374,30 @@ export class Tallyfy implements INodeType {
 						page++;
 					}
 					responseData = allItems;
+				} else if (resource === 'blueprint' && operation === 'listSteps') {
+					// The steps route pages at 10 by default and at most 100, so one request
+					// returned only a template's first 10 steps (tallyfy/work-queue#4260). Ask for
+					// 100 a page and follow meta.pagination.total_pages to the last page, keeping
+					// the API's order. Page by number: meta.pagination.links.next names an internal
+					// host and drops per_page. The output keeps its one-item shape, { data, meta },
+					// so existing expressions such as $json.data still work: data holds every step
+					// and meta is the last page's, so its total matches.
+					const allSteps: IDataObject[] = [];
+					let lastPage: IDataObject = {};
+					for (let page = 1; ; page++) {
+						options.qs = { ...qs, per_page: 100, page };
+						lastPage = (await this.helpers.httpRequestWithAuthentication.call(
+							this,
+							'tallyfyApi',
+							options,
+						)) as IDataObject;
+						const rows = Array.isArray(lastPage?.data) ? (lastPage.data as IDataObject[]) : [];
+						allSteps.push(...rows);
+						const pagination = ((lastPage?.meta as IDataObject)?.pagination ?? {}) as IDataObject;
+						const totalPages = Number(pagination.total_pages);
+						if (rows.length === 0 || !Number.isFinite(totalPages) || page >= totalPages) break;
+					}
+					responseData = { ...lastPage, data: allSteps };
 				} else {
 					responseData = await this.helpers.httpRequestWithAuthentication.call(
 						this,

@@ -49,6 +49,14 @@ its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
 
 ## [Unreleased]
 
+### Fixed
+- **Template > List Steps returns every step.** It made one request with no page size, and the
+  API sends 10 steps a page by default, so a template with more than 10 steps showed only its
+  first 10 (a 12 step template came back as 10 on staging on 2026-10-24). It now asks for 100 a page and
+  follows `meta.pagination.total_pages` to the last page, in the API's order. The output keeps its
+  shape, one item with `data` and `meta`, so expressions such as `$json.data` still work; `data`
+  holds every step and `meta` is the last page's. (tallyfy/work-queue#4260)
+
 ## [1.4.1] - 2026-10-24
 
 ### Fixed
