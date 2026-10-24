@@ -632,3 +632,39 @@ describe('TallyfyTrigger - Poll Times stays, and a notice says it does nothing i
 		expect('instantModeNotice' in params).toBe(shown);
 	});
 });
+
+// #61. api-v2 ignores a filter or sort it does not know and answers 200, so a wrong name fails
+// silently. These pin the names api-v2 production reads: the task status scope `complete` (there
+// is no `completed`), the sort scopes `completed_newest` and `newest`, and /me/tasks for the
+// connected user's own tasks (the organization's task list has no `assignee` filter).
+describe('TallyfyTrigger - Polling asks for what the API honours (#61)', () => {
+	async function firstRequest(event: string) {
+		const { ctx, httpMock } = createContextMock({
+			triggerStyle: true,
+			mode: 'trigger',
+			params: { mode: 'polling', event, limit: 25 },
+			httpResponses: [{ data: [] }],
+		});
+		await new TallyfyTrigger().poll.call(ctx);
+		expect(httpMock).toHaveBeenCalledTimes(1);
+		return requestAt(httpMock, 0);
+	}
+
+	it('Task Completed asks for status complete, newest completions first', async () => {
+		const opts = await firstRequest('taskCompleted');
+		expect(opts.url).toBe(`${BASE}/organizations/${ORG}/tasks`);
+		expect(opts.qs).toEqual({ status: 'complete', sort: 'completed_newest', per_page: 25 });
+	});
+
+	it('Task Assigned To Me reads the connected user\'s own active tasks, newest first', async () => {
+		const opts = await firstRequest('taskAssigned');
+		expect(opts.url).toBe(`${BASE}/organizations/${ORG}/me/tasks`);
+		expect(opts.qs).toEqual({ status: 'active', sort: 'newest', per_page: 25 });
+	});
+
+	it('New Process Launched still asks for the newest processes first', async () => {
+		const opts = await firstRequest('processLaunched');
+		expect(opts.url).toBe(`${BASE}/organizations/${ORG}/runs`);
+		expect(opts.qs).toEqual({ sort: '-created_at', per_page: 25 });
+	});
+});

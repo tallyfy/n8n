@@ -610,9 +610,14 @@ export class TallyfyTrigger implements INodeType {
 			items = (resp.data as IDataObject[]) || [];
 			dedupScope = `runs_${checklistId || 'all'}`;
 		} else if (event === 'taskCompleted') {
-			// status=completed is a real filter; sort by completed_at client-side (server sort unreliable).
+			// api-v2 filters tasks by a status scope name, and the scope for finished tasks is
+			// `complete`. It ignores a name it does not know, so `completed`, sent until 1.4.1, returned
+			// unfinished tasks too, whose ids were then marked seen before they were ever completed.
+			// Without a sort the API pages by id, so the newest completions were rarely on the page;
+			// `completed_newest` orders by completed_at, newest first (#61).
 			const resp = await request(`/organizations/${organizationId}/tasks`, {
-				status: 'completed',
+				status: 'complete',
+				sort: 'completed_newest',
 				per_page: limit,
 			});
 			items = (resp.data as IDataObject[]) || [];
@@ -621,9 +626,13 @@ export class TallyfyTrigger implements INodeType {
 			);
 			dedupScope = 'tasks_completed';
 		} else if (event === 'taskAssigned') {
-			const resp = await request(`/organizations/${organizationId}/tasks`, {
-				assignee: 'me',
+			// The organization's task list has no `assignee` filter, so `assignee=me`, sent until
+			// 1.4.1, was ignored and this fired for every new active task in the organization. The
+			// connected user's own list is /me/tasks; `status=active` keeps it to unfinished tasks and
+			// `newest` puts the newest first (#61).
+			const resp = await request(`/organizations/${organizationId}/me/tasks`, {
 				status: 'active',
+				sort: 'newest',
 				per_page: limit,
 			});
 			items = (resp.data as IDataObject[]) || [];
