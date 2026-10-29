@@ -326,6 +326,9 @@ Job resource, counted from the operation lists in `nodes/Tallyfy/Tallyfy.node.ts
   the first release this workflow has ever produced. Verify with
   `curl -s https://registry.npmjs.org/-/npm/v1/attestations/n8n-nodes-tallyfy@1.1.2 | jq '[.attestations[].predicateType]'`.
   Everything up to and including 1.1.1 was published by hand.
+  Reading of 2026-10-29 (#65): npm's latest is `n8n-nodes-tallyfy@1.4.1`, published 2026-10-24T21:15Z.
+  The releases after 1.1.2 are 1.1.3, 1.2.1, 1.3.0, 1.4.0 and 1.4.1, and 1.4.1 also carries both
+  attestations. Read the current version with `npm view n8n-nodes-tallyfy version` and use it in the curl above.
 - **macOS install gotcha**: n8n-workflow 2.x pulls `isolated-vm` (native C++ addon, needs Node >=22 headers to compile; fine on Linux CI). **Check `xcode-select -p` BEFORE exporting anything.** On a Mac whose CommandLineTools lack `usr/include/c++/v1` (broken CLT), `npm install` fails with `'memory' file not found`, and the fix is `export CPLUS_INCLUDE_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1`, plus making sure Apple's `/usr/bin/libtool` (not Homebrew GNU libtool) wins in PATH or the `-static` archive step fails. ⚠️ **Where `xcode-select -p` points at Xcode rather than CommandLineTools, that export MIXES TWO SDKs and `npm ci` fails with `unknown type name 'uint64_t'` — a different error that reads like a worse version of the one you were fixing.** Measured on ak-imac 2026-08-21: clean environment, no workaround, `npm ci` exits 0. So the workaround is conditional, not a default.
 
 ## CI runners and pull requests (dated 2026-10-06)
