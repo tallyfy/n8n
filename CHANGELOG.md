@@ -49,6 +49,12 @@ its own notes, and an empty `[Unreleased]` never blocks one. Both are covered by
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-11-19
+
+### Changed
+- The Tallyfy node, the trigger node and the credential now show the Tallyfy icon tile in place of the
+  purple list tile (#66).
+
 ### Fixed
 - **Template > List Steps returns every step.** It made one request with no page size, and the
   API sends 10 steps a page by default, so a template with more than 10 steps showed only its
